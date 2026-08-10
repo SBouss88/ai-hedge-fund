@@ -1,0 +1,1 @@
+WATCHLIST = ["TSM", "NVDA", "MSFT", "NBIS", "MU"]
