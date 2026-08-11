@@ -36,6 +36,19 @@ if p.returncode:
 
 report = p.stdout
 
+z = subprocess.run(
+    [sys.executable, str(HERE / "entry_zones.py")],
+    capture_output=True,
+    text=True,
+)
+
+if z.returncode:
+    print(z.stdout)
+    print(z.stderr)
+    raise SystemExit("entry_zones.py failed")
+
+zones = z.stdout
+
 prompt = f"""
 Voici un rapport de recherche boursiere calcule par des regles Python.
 
@@ -50,11 +63,18 @@ Regles:
 - risks: 1 a 3 points.
 - change_conditions: 1 a 3 conditions concretes qui amelioreraient ou deterioreraient le setup.
 - Une confiance fondamentale LOW doit etre presentee comme un risque important.
+- Une confiance MEDIUM signifie prudence moderee, pas un risque majeur.
+- Un support ou une resistance marque DISTANT ne doit jamais etre presente comme un point positif immediat ou comme une zone d entree proche.
+- Tout niveau marque DISTANT doit etre exclu de positives, meme s il est STRONG ou en confluence.
+- Une actualite NEUTRAL ou MIXED ne doit pas apparaitre dans positives.
 - Sois prudent, simple et concis.
 - Retourne exactement une analyse pour chacun de ces tickers: {WATCHLIST}.
 
-RAPPORT:
+RAPPORT PRINCIPAL:
 {report}
+
+NIVEAUX TECHNIQUES:
+{zones}
 """
 
 client = OpenAI()
