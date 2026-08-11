@@ -6,10 +6,17 @@ import streamlit as st
 
 HERE = Path(__file__).resolve().parent
 
-st.set_page_config(page_title="Simon AI Stock Watchlist", page_icon="📈", layout="wide")
+st.set_page_config(
+    page_title="Simon AI Stock Watchlist",
+    page_icon="📈",
+    layout="wide",
+)
 
 st.title("📈 Simon AI Stock Watchlist")
 st.caption("AI-assisted stock research dashboard")
+
+if "report" not in st.session_state:
+    st.session_state.report = None
 
 if st.button("🔄 Update analysis", type="primary"):
     with st.spinner("Analyse des actions en cours..."):
@@ -20,10 +27,77 @@ if st.button("🔄 Update analysis", type="primary"):
         )
 
     if result.returncode == 0:
+        st.session_state.report = result.stdout
         st.success("Analyse terminée")
-        st.code(result.stdout, language=None)
     else:
         st.error("Erreur pendant l analyse")
         st.code(result.stderr, language=None)
-else:
+
+if st.session_state.report:
+    report = st.session_state.report
+    blocks = []
+    current = []
+
+    for line in report.splitlines():
+        if line.startswith("#"):
+            if current:
+                blocks.append(current)
+            current = [line]
+        elif current:
+            current.append(line)
+
+    if current:
+        blocks.append(current)
+
+    for block in blocks:
+        header = block[0]
+        fields = {}
+
+        for line in block[1:]:
+            line = line.strip()
+            if ":" in line:
+                key, value = line.split(":", 1)
+                fields[key.strip()] = value.strip()
+
+        with st.container(border=True):
+            st.subheader(header)
+
+            c1, c2, c3 = st.columns(3)
+
+            summary = fields.get("Prix", "")
+            parts = [x.strip() for x in summary.split("|")]
+
+            with c1:
+                st.metric("Prix", parts[0] if parts else "N/A")
+            with c2:
+                st.caption("Fondamentaux")
+                st.markdown(
+                    "### " + (
+                        parts[1].replace("Fondamentaux:", "").strip()
+                        if len(parts) > 1 else "N/A"
+                    )
+                )
+            with c3:
+                st.caption("News")
+                st.markdown(
+                    "### " + (
+                        parts[2].replace("News:", "").strip()
+                        if len(parts) > 2 else "N/A"
+                    )
+                )
+
+            st.write("**Technique :**", fields.get("Technique", "N/A"))
+
+            c1, c2 = st.columns(2)
+            with c1:
+                st.write("**Support :**", fields.get("Support", "N/A"))
+            with c2:
+                st.write("**Résistance :**", fields.get("Resistance", "N/A"))
+
+            st.markdown("**Verdict :** " + fields.get("Verdict", "N/A"))
+            st.write("**Pourquoi :**", fields.get("Pourquoi", "N/A"))
+            st.warning("⚠️ " + fields.get("Risque principal", "N/A"))
+            st.info("👀 " + fields.get("A surveiller", "N/A"))
+
+elif not st.session_state.report:
     st.info("Clique sur Update analysis pour lancer une nouvelle analyse.")
