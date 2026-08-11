@@ -94,6 +94,37 @@ for line in report.splitlines():
     elif current and "RESEARCH VIEW:" in line:
         views[current] = line.split("RESEARCH VIEW:", 1)[1].strip()
 
+details = {ticker: {} for ticker in WATCHLIST}
+current = None
+
+for line in report.splitlines():
+    stripped = line.strip()
+    if stripped in WATCHLIST:
+        current = stripped
+    elif current and stripped.startswith("Fundamentals:"):
+        details[current]["fundamentals"] = stripped.split(":", 1)[1].strip()
+    elif current and stripped.startswith("Technical:"):
+        details[current]["technical"] = stripped.split(":", 1)[1].strip()
+    elif current and stripped.startswith("News:"):
+        details[current]["news"] = stripped.split(":", 1)[1].strip()
+
+zone_details = {ticker: {} for ticker in WATCHLIST}
+current = None
+
+for line in zones.splitlines():
+    stripped = line.strip()
+    if stripped in WATCHLIST:
+        current = stripped
+    elif current and stripped.startswith("Price:"):
+        zone_details[current]["price"] = stripped.split(":", 1)[1].strip()
+    elif current and stripped.startswith("Support:"):
+        zone_details[current]["support"] = stripped.split(":", 1)[1].strip()
+    elif current and stripped.startswith("Resistance:"):
+        zone_details[current]["resistance"] = stripped.split(":", 1)[1].strip()
+    elif current and stripped.startswith("SETUP:"):
+        zone_details[current]["setup"] = stripped.split(":", 1)[1].strip()
+
+
 def display_level(view):
     if view == "ATTRACTIVE SETUP":
         return "🟢", "ATTRACTIVE"
@@ -109,15 +140,50 @@ def display_level(view):
         return "🔴", "CAUTION"
     return "⚪", "WATCH"
 
+def ranking_score(view):
+    if view == "ATTRACTIVE SETUP":
+        return 6
+    if "ATTRACTIVE" in view:
+        return 5
+    if "PULLBACK OPPORTUNITY" in view:
+        return 4
+    if "BETTER ENTRY" in view:
+        return 3
+    if "VERIFY FUNDAMENTALS" in view:
+        return 2
+    if "CAUTION" in view:
+        return 1
+    return 3
+
+
+explanations = {e.ticker: e for e in response.output_parsed.items}
+ranked_tickers = sorted(
+    WATCHLIST,
+    key=lambda ticker: ranking_score(views.get(ticker, "UNKNOWN")),
+    reverse=True,
+)
+
+
 print("\n" + "=" * 60)
 print("SIMON AI STOCK WATCHLIST - FINAL REPORT")
 print("=" * 60)
 
-for e in response.output_parsed.items:
-    view = views.get(e.ticker, "UNKNOWN")
+for rank, ticker in enumerate(ranked_tickers, start=1):
+    e = explanations[ticker]
+    view = views.get(ticker, "UNKNOWN")
     emoji, level = display_level(view)
+    d = details.get(ticker, {})
+    zinfo = zone_details.get(ticker, {})
 
-    print(f"\n{emoji} {e.ticker} — {level}")
+    print(f"\n#{rank}  {emoji} {ticker} — {level}")
+    print(
+        f"  Prix: {zinfo.get("price", "N/A")} | "
+        f"Fondamentaux: {d.get("fundamentals", "N/A")} | "
+        f"News: {d.get("news", "N/A")}"
+    )
+    print(f"  Technique: {d.get("technical", "N/A")}")
+    print(f"  Support: {zinfo.get("support", "N/A")}")
+    print(f"  Resistance: {zinfo.get("resistance", "N/A")}")
     print(f"  Verdict: {view}")
     print(f"  Pourquoi: {e.why}")
 
@@ -126,6 +192,7 @@ for e in response.output_parsed.items:
 
     if e.change_conditions:
         print(f"  A surveiller: {e.change_conditions[0]}")
+
 
 print("\nResearch support only - not an automatic trading instruction.")
 
