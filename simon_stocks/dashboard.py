@@ -35,12 +35,63 @@ def fr(text):
         "LOW": "FAIBLE",
         "WATCH": "À SURVEILLER",
         "away": "d’écart",
+        "1 touches": "1 contact",
         "touches": "contacts",
     }
     result = str(text)
     for old, new in replacements.items():
         result = result.replace(old, new)
     return result
+
+def current_verdict(report, ticker):
+    lines = report.splitlines()
+    inside = False
+    for line in lines:
+        if line.startswith("#"):
+            inside = f" {ticker} " in line
+        elif inside and line.strip().startswith("Verdict:"):
+            return line.split(":", 1)[1].strip()
+    return ""
+
+def entry_change_summary(line, report):
+    raw = line[2:] if line.startswith("- ") else line
+    ticker = raw.split(":", 1)[0].strip()
+    verdict = current_verdict(report, ticker)
+
+    change = None
+    if "price " in raw:
+        try:
+            change = float(raw.split("price ", 1)[1].split("%", 1)[0])
+        except ValueError:
+            pass
+
+    if "verdict:" in raw:
+        verdict_change = raw.split("verdict:", 1)[1].strip()
+        old_verdict, new_verdict = [x.strip() for x in verdict_change.split("->", 1)]
+
+        if new_verdict in ("ATTRACTIVE SETUP", "WATCH - PULLBACK OPPORTUNITY"):
+            return "🟢", "La situation s’améliore : le titre devient plus intéressant pour envisager un achat."
+
+        if new_verdict in ("WAIT FOR BETTER ENTRY", "WATCH - VERIFY FUNDAMENTALS"):
+            return "🔴", "La situation se dégrade : mieux vaut attendre avant d’envisager un achat."
+
+    if change is not None:
+        if change > 5:
+            return "🔴", "Le cours a fortement monté : le prix est maintenant moins intéressant pour acheter."
+
+        if change < 0 and "WAIT FOR BETTER ENTRY" in verdict:
+            return "🟢", "Le cours baisse : il se rapproche d’un prix plus intéressant pour acheter."
+
+        if change > 0 and "WATCH - VERIFY FUNDAMENTALS" in verdict:
+            return "🟠", "Le cours monte, mais cela ne rend pas l’achat plus intéressant pour le moment."
+
+        if change > 0:
+            return "🟠", "Le cours a légèrement monté, sans changement important pour envisager un achat."
+
+        if change < 0:
+            return "🟠", "Le cours baisse légèrement, mais cela ne suffit pas encore à rendre l’achat plus intéressant."
+
+    return "🟠", "Pas de changement important concernant l’intérêt d’un achat pour le moment."
 
 st.set_page_config(
     page_title="Simon AI Stock Watchlist",
@@ -57,6 +108,14 @@ if "report" not in st.session_state:
     st.session_state.report = (
         reports[0].read_text(encoding="utf-8") if reports else None
     )
+
+if "changes" not in st.session_state:
+    comparison = subprocess.run(
+        [sys.executable, str(HERE / "compare_latest.py")],
+        capture_output=True,
+        text=True,
+    )
+    st.session_state.changes = comparison.stdout.strip()
 
 if st.button("🔄 Mettre à jour l’analyse", type="primary"):
     with st.spinner("Analyse des actions en cours..."):
@@ -85,6 +144,20 @@ b1.metric("💳 Solde de départ", f"${start_balance:.2f}")
 b2.metric("💸 Dépensé par l outil", f"${spent:.4f}")
 b3.metric("💰 Solde estimé", f"${remaining:.2f}")
 st.caption("Solde estimé localement à partir du dernier solde OpenAI renseigné.")
+
+if st.session_state.changes:
+    changes = st.session_state.changes
+    st.subheader("🔎 Depuis la dernière analyse")
+    if "No significant change." in changes:
+        st.info("Aucun changement significatif depuis le rapport précédent.")
+    else:
+        for line in changes.splitlines():
+            if line.startswith("- "):
+                item = fr(line[2:])
+                item = item.replace("price ", "prix ").replace("verdict:", "verdict :").replace(" -> ", " → ")
+                icon, reason = entry_change_summary(line, st.session_state.report)
+                price_text = item.split(" | ", 1)[0]
+                st.write(f"{icon} {price_text} — {reason}")
 
 if st.session_state.report:
     report = st.session_state.report
