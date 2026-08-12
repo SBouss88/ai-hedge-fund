@@ -21,13 +21,13 @@ if "report" not in st.session_state:
 if st.button("🔄 Update analysis", type="primary"):
     with st.spinner("Analyse des actions en cours..."):
         result = subprocess.run(
-            [sys.executable, str(HERE / "final_report.py")],
+            [sys.executable, str(HERE / "run_and_save.py")],
             capture_output=True,
             text=True,
         )
 
     if result.returncode == 0:
-        st.session_state.report = result.stdout
+        st.session_state.report = result.stdout.split("\nSaved:", 1)[0].rstrip()
         st.success("Analyse terminée")
     else:
         st.error("Erreur pendant l analyse")
