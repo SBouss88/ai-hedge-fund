@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -8,6 +9,24 @@ from pydantic import BaseModel
 from config import WATCHLIST
 
 HERE = Path(__file__).resolve().parent
+
+if not os.getenv("OPENAI_API_KEY"):
+    key = subprocess.run(
+        [
+            "security",
+            "find-generic-password",
+            "-a",
+            os.getenv("USER", ""),
+            "-s",
+            "OPENAI_API_KEY",
+            "-w",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if key.returncode != 0 or not key.stdout.strip():
+        raise SystemExit("OpenAI API key not found in macOS Keychain.")
+    os.environ["OPENAI_API_KEY"] = key.stdout.strip()
 MODEL = "gpt-5.6-luna"
 
 
