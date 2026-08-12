@@ -26,3 +26,6 @@ path.write_text(report, encoding="utf-8")
 
 print(report, end="")
 print(f"\nSaved: {path.name}")
+
+print("\n--- Changes since previous report ---")
+subprocess.run([sys.executable, str(HERE / "compare_latest.py")])
