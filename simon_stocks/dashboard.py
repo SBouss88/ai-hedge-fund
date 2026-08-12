@@ -109,7 +109,7 @@ if "report" not in st.session_state:
         reports[0].read_text(encoding="utf-8") if reports else None
     )
 
-if "changes" not in st.session_state:
+if True:
     comparison = subprocess.run(
         [sys.executable, str(HERE / "compare_latest.py")],
         capture_output=True,
