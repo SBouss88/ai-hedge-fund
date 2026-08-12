@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -215,8 +216,19 @@ for rank, ticker in enumerate(ranked_tickers, start=1):
 
 print("\nResearch support only - not an automatic trading instruction.")
 
-if response.usage:
-    print(
-        f"AI tokens: {response.usage.input_tokens} input / "
-        f"{response.usage.output_tokens} output"
-    )
+news_usage = re.search(
+    r"NEWS AI TOKENS:\s*(\d+) input / (\d+) output",
+    report,
+)
+
+news_in = int(news_usage.group(1)) if news_usage else 0
+news_out = int(news_usage.group(2)) if news_usage else 0
+
+final_in = response.usage.input_tokens if response.usage else 0
+final_out = response.usage.output_tokens if response.usage else 0
+
+print(f"Explanation AI tokens: {final_in} input / {final_out} output")
+print(
+    f"TOTAL AI TOKENS: {news_in + final_in} input / "
+    f"{news_out + final_out} output"
+)

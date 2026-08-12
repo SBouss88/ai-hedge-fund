@@ -78,7 +78,19 @@ timing = parse_timing(run("analyze.py"))
 print("Running fundamentals...")
 fund = parse_fundamentals(run("fundamental_scores.py"))
 print("Running AI news analysis...")
-news = parse_news(run("news_summary_structured.py"))
+raw_news = run("news_summary_structured.py")
+news = parse_news(raw_news)
+
+usage_match = re.search(
+    r"TOTAL TOKEN USAGE\s+Input:\s*(\d+)\s+Output:\s*(\d+)",
+    raw_news,
+    re.S,
+)
+if usage_match:
+    print(
+        f"NEWS AI TOKENS: {usage_match.group(1)} input / "
+        f"{usage_match.group(2)} output"
+    )
 
 print("\n" + "=" * 52)
 for ticker in WATCHLIST:

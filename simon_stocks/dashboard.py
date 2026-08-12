@@ -16,7 +16,11 @@ st.title("📈 Simon AI Stock Watchlist")
 st.caption("AI-assisted stock research dashboard")
 
 if "report" not in st.session_state:
-    st.session_state.report = None
+    history_dir = HERE / "history"
+    reports = sorted(history_dir.glob("report_*.txt"), reverse=True)
+    st.session_state.report = (
+        reports[0].read_text(encoding="utf-8") if reports else None
+    )
 
 if st.button("🔄 Update analysis", type="primary"):
     with st.spinner("Analyse des actions en cours..."):
@@ -32,6 +36,19 @@ if st.button("🔄 Update analysis", type="primary"):
     else:
         st.error("Erreur pendant l analyse")
         st.code(result.stderr, language=None)
+
+balance_path = HERE / "history" / "openai_balance_start.txt"
+spent_path = HERE / "history" / "openai_spent.txt"
+
+start_balance = float(balance_path.read_text().strip()) if balance_path.exists() else 0.0
+spent = float(spent_path.read_text().strip()) if spent_path.exists() else 0.0
+remaining = max(start_balance - spent, 0.0)
+
+b1, b2, b3 = st.columns(3)
+b1.metric("💳 Solde de départ", f"${start_balance:.2f}")
+b2.metric("💸 Dépensé par l outil", f"${spent:.4f}")
+b3.metric("💰 Solde estimé", f"${remaining:.2f}")
+st.caption("Solde estimé localement à partir du dernier solde OpenAI renseigné.")
 
 if st.session_state.report:
     report = st.session_state.report
