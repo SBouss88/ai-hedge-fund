@@ -6,14 +6,50 @@ import streamlit as st
 
 HERE = Path(__file__).resolve().parent
 
+def fr(text):
+    replacements = {
+        "VERIFY - HIGH UNCERTAINTY": "À VÉRIFIER - FORTE INCERTITUDE",
+        "WAIT - BETTER ENTRY": "ATTENDRE - MEILLEURE ENTRÉE",
+        "WAIT FOR BETTER ENTRY": "ATTENDRE UNE MEILLEURE ENTRÉE",
+        "WATCH - VERIFY FUNDAMENTALS": "À SURVEILLER - VÉRIFIER LES FONDAMENTAUX",
+        "OVERHEATED - DO NOT CHASE": "SURCHAUFFE - NE PAS POURSUIVRE LA HAUSSE",
+        "POSITIVE MOMENTUM": "DYNAMIQUE HAUSSIÈRE",
+        "WATCH - PULLBACK": "À SURVEILLER - REPLI",
+        "PULLBACK OPPORTUNITY": "OPPORTUNITÉ SUR REPLI",
+        "CAUTION - NEGATIVE NEWS": "PRUDENCE - ACTUALITÉS NÉGATIVES",
+        "CAUTION - WEAK FUNDAMENTALS": "PRUDENCE - FONDAMENTAUX FAIBLES",
+        "CAUTION - WEAK TECHNICALS": "PRUDENCE - TECHNIQUE FAIBLE",
+        "WAIT FOR COOLING": "ATTENDRE UN REFROIDISSEMENT",
+        "ATTRACTIVE SETUP": "CONFIGURATION ATTRACTIVE",
+        "— ATTRACTIVE": "— ATTRACTIF",
+        "INCOMPLETE": "INCOMPLET",
+        "POSITIVE": "POSITIVES",
+        "NEGATIVE": "NÉGATIVES",
+        "MIXED": "MITIGÉES",
+        "STRONG": "FORT",
+        "WEAK": "FAIBLE",
+        "NEARBY": "PROCHE",
+        "DISTANT": "ÉLOIGNÉ",
+        "HIGH": "ÉLEVÉE",
+        "MEDIUM": "MOYENNE",
+        "LOW": "FAIBLE",
+        "WATCH": "À SURVEILLER",
+        "away": "d’écart",
+        "touches": "contacts",
+    }
+    result = str(text)
+    for old, new in replacements.items():
+        result = result.replace(old, new)
+    return result
+
 st.set_page_config(
     page_title="Simon AI Stock Watchlist",
     page_icon="📈",
     layout="wide",
 )
 
-st.title("📈 Simon AI Stock Watchlist")
-st.caption("AI-assisted stock research dashboard")
+st.title("📈 Simon AI — Suivi des actions")
+st.caption("Tableau de bord d’aide à l’analyse boursière par IA")
 
 if "report" not in st.session_state:
     history_dir = HERE / "history"
@@ -22,7 +58,7 @@ if "report" not in st.session_state:
         reports[0].read_text(encoding="utf-8") if reports else None
     )
 
-if st.button("🔄 Update analysis", type="primary"):
+if st.button("🔄 Mettre à jour l’analyse", type="primary"):
     with st.spinner("Analyse des actions en cours..."):
         result = subprocess.run(
             [sys.executable, str(HERE / "run_and_save.py")],
@@ -77,7 +113,7 @@ if st.session_state.report:
                 fields[key.strip()] = value.strip()
 
         with st.container(border=True):
-            st.subheader(header)
+            st.subheader(fr(header))
 
             c1, c2, c3 = st.columns(3)
 
@@ -90,31 +126,31 @@ if st.session_state.report:
                 st.caption("Fondamentaux")
                 st.markdown(
                     "### " + (
-                        parts[1].replace("Fondamentaux:", "").strip()
+                        fr(fr(parts[1].replace("Fondamentaux:", "").strip()))
                         if len(parts) > 1 else "N/A"
                     )
                 )
             with c3:
-                st.caption("News")
+                st.caption("Actualités")
                 st.markdown(
                     "### " + (
-                        parts[2].replace("News:", "").strip()
+                        fr(parts[2].replace("News:", "").strip())
                         if len(parts) > 2 else "N/A"
                     )
                 )
 
-            st.write("**Technique :**", fields.get("Technique", "N/A"))
+            st.write("**Technique :**", fr(fr(fields.get("Technique", "N/A"))))
 
             c1, c2 = st.columns(2)
             with c1:
-                st.write("**Support :**", fields.get("Support", "N/A"))
+                st.write("**Support :**", fr(fr(fields.get("Support", "N/A"))))
             with c2:
-                st.write("**Résistance :**", fields.get("Resistance", "N/A"))
+                st.write("**Résistance :**", fr(fr(fields.get("Resistance", "N/A"))))
 
-            st.markdown("**Verdict :** " + fields.get("Verdict", "N/A"))
-            st.write("**Pourquoi :**", fields.get("Pourquoi", "N/A"))
-            st.warning("⚠️ " + fields.get("Risque principal", "N/A"))
-            st.info("👀 " + fields.get("A surveiller", "N/A"))
+            st.markdown("**Verdict :** " + fr(fr(fields.get("Verdict", "N/A"))))
+            st.write("**Pourquoi :**", fr(fr(fields.get("Pourquoi", "N/A"))))
+            st.warning("⚠️ " + fr(fr(fields.get("Risque principal", "N/A"))))
+            st.info("👀 " + fr(fr(fields.get("A surveiller", "N/A"))))
 
 elif not st.session_state.report:
-    st.info("Clique sur Update analysis pour lancer une nouvelle analyse.")
+    st.info("Clique sur Mettre à jour l’analyse pour lancer une nouvelle analyse.")
