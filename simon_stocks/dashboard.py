@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 import streamlit as st
+from config import WATCHLIST
 
 HERE = Path(__file__).resolve().parent
 
@@ -148,16 +149,23 @@ st.caption("Solde estimé localement à partir du dernier solde OpenAI renseign�
 if st.session_state.changes:
     changes = st.session_state.changes
     st.subheader("🔎 Depuis la dernière analyse")
-    if "No significant change." in changes:
-        st.info("Aucun changement significatif depuis le rapport précédent.")
-    else:
-        for line in changes.splitlines():
-            if line.startswith("- "):
-                item = fr(line[2:])
-                item = item.replace("price ", "prix ").replace("verdict:", "verdict :").replace(" -> ", " → ")
-                icon, reason = entry_change_summary(line, st.session_state.report)
-                price_text = item.split(" | ", 1)[0]
-                st.write(f"{icon} {price_text} — {reason}")
+
+    change_lines = {
+        line[2:].split(":", 1)[0].strip(): line
+        for line in changes.splitlines()
+        if line.startswith("- ")
+    }
+
+    for ticker in WATCHLIST:
+        if ticker in change_lines:
+            line = change_lines[ticker]
+            item = fr(line[2:])
+            item = item.replace("price ", "prix ").replace("verdict:", "verdict :").replace(" -> ", " → ")
+            icon, reason = entry_change_summary(line, st.session_state.report)
+            price_text = item.split(" | ", 1)[0]
+            st.write(f"{icon} {price_text} — {reason}")
+        else:
+            st.write(f"⚪ {ticker} : stable — Aucun changement important depuis la dernière analyse.")
 
 if st.session_state.report:
     report = st.session_state.report
