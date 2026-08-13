@@ -87,6 +87,9 @@ Regles:
 - Un support ou une resistance marque DISTANT ne doit jamais etre presente comme un point positif immediat ou comme une zone d entree proche.
 - Tout niveau marque DISTANT doit etre exclu de positives, meme s il est STRONG ou en confluence.
 - Une actualite NEUTRAL ou MIXED ne doit pas apparaitre dans positives.
+- PRICE EXTENDED signifie que la tendance peut rester favorable mais que le prix est tendu; ne le presente jamais comme une obligation d attendre ou comme un signal de baisse.
+- WATCH - PULLBACK signifie un repli a surveiller; ne le presente jamais automatiquement comme une opportunite d achat.
+- CAUTION - WEAK TECHNICALS signifie que la tendance technique de fond est suffisamment faible pour justifier une vraie prudence.
 - Sois prudent, simple et concis.
 - Retourne exactement une analyse pour chacun de ces tickers: {WATCHLIST}.
 
@@ -148,32 +151,36 @@ for line in zones.splitlines():
 def display_level(view):
     if view == "ATTRACTIVE SETUP":
         return "🟢", "ATTRACTIVE"
+    if view == "ATTRACTIVE - PRICE EXTENDED":
+        return "🟢🟡", "ATTRACTIVE - PRICE EXTENDED"
     if "ATTRACTIVE" in view:
         return "🟢🟡", "ATTRACTIVE - MONITOR"
-    if "PULLBACK OPPORTUNITY" in view:
-        return "🟡", "WATCH - OPPORTUNITY"
-    if "BETTER ENTRY" in view:
-        return "🟠", "WAIT - BETTER ENTRY"
+    if view == "WATCH - PRICE EXTENDED":
+        return "🟡", "WATCH - PRICE EXTENDED"
+    if view == "WATCH - PULLBACK":
+        return "🟡", "WATCH - PULLBACK"
     if "VERIFY FUNDAMENTALS" in view:
         return "🟠🔴", "VERIFY - HIGH UNCERTAINTY"
     if "CAUTION" in view:
         return "🔴", "CAUTION"
     return "⚪", "WATCH"
 
+
 def ranking_score(view):
     if view == "ATTRACTIVE SETUP":
         return 6
+    if view == "ATTRACTIVE - PRICE EXTENDED":
+        return 5
     if "ATTRACTIVE" in view:
         return 5
-    if "PULLBACK OPPORTUNITY" in view:
-        return 4
-    if "BETTER ENTRY" in view:
+    if view in ("WATCH - PRICE EXTENDED", "WATCH - PULLBACK"):
         return 3
     if "VERIFY FUNDAMENTALS" in view:
         return 2
     if "CAUTION" in view:
         return 1
     return 3
+
 
 
 explanations = {e.ticker: e for e in response.output_parsed.items}

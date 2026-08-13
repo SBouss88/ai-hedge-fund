@@ -54,23 +54,37 @@ def parse_news(text):
     return out
 
 def verdict(score, fconf, timing, news, nconf):
-    if score is None or timing is None:
+    if timing is None:
         return "INCOMPLETE DATA"
+
     if fconf == "LOW":
         return "WATCH - VERIFY FUNDAMENTALS"
+
+    if score is None:
+        return "INCOMPLETE DATA"
+
     if score < 3.0:
         return "CAUTION - WEAK FUNDAMENTALS"
+
     if news == "NEGATIVE" and nconf == "HIGH":
         return "CAUTION - NEGATIVE NEWS"
-    if timing == "OVERHEATED - DO NOT CHASE":
-        return "WAIT FOR BETTER ENTRY"
+
     if timing == "CAUTION":
-        return "WAIT - TECHNICAL TREND WEAK"
+        return "CAUTION - WEAK TECHNICALS"
+
+    if timing == "POSITIVE MOMENTUM - PRICE EXTENDED":
+        if score >= 4.0:
+            return "ATTRACTIVE - PRICE EXTENDED"
+        return "WATCH - PRICE EXTENDED"
+
     if score >= 4.0 and timing == "POSITIVE MOMENTUM":
         return "ATTRACTIVE SETUP" if news == "POSITIVE" else "ATTRACTIVE - BUT MONITOR NEWS"
+
     if score >= 4.0 and timing == "WATCH - PULLBACK":
-        return "WATCH - PULLBACK OPPORTUNITY"
+        return "WATCH - PULLBACK"
+
     return "WATCH"
+
 
 print("\nSIMON AI STOCK WATCHLIST - COMBINED REPORT\n")
 print("Running technical analysis...")

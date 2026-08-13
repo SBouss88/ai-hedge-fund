@@ -19,14 +19,14 @@ for t in WATCHLIST:
     d50 = (p / s50 - 1) * 100
     d200 = (p / s200 - 1) * 100
 
-    if r >= 70:
-        timing = "OVERHEATED - DO NOT CHASE"
+    if p < s200:
+        timing = "CAUTION"
+    elif p > s50 > s200 and r >= 70:
+        timing = "POSITIVE MOMENTUM - PRICE EXTENDED"
     elif p > s50 > s200:
         timing = "POSITIVE MOMENTUM"
     elif p > s200 and p < s50:
         timing = "WATCH - PULLBACK"
-    elif p < s200:
-        timing = "CAUTION"
     else:
         timing = "MIXED"
 

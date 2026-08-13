@@ -14,6 +14,10 @@ def fr(text):
         "WAIT FOR BETTER ENTRY": "ATTENDRE UNE MEILLEURE ENTRÉE",
         "WATCH - VERIFY FUNDAMENTALS": "À SURVEILLER - VÉRIFIER LES FONDAMENTAUX",
         "OVERHEATED - DO NOT CHASE": "SURCHAUFFE - NE PAS POURSUIVRE LA HAUSSE",
+        "POSITIVE MOMENTUM - PRICE EXTENDED": "DYNAMIQUE HAUSSIÈRE - PRIX TENDU",
+        "ATTRACTIVE - PRICE EXTENDED": "ATTRACTIF - PRIX TENDU",
+        "WATCH - PRICE EXTENDED": "À SURVEILLER - PRIX TENDU",
+        "ATTRACTIVE - BUT MONITOR NEWS": "ATTRACTIF - SURVEILLER LES ACTUALITÉS",
         "POSITIVE MOMENTUM": "DYNAMIQUE HAUSSIÈRE",
         "WATCH - PULLBACK": "À SURVEILLER - REPLI",
         "PULLBACK OPPORTUNITY": "OPPORTUNITÉ SUR REPLI",
@@ -70,18 +74,53 @@ def entry_change_summary(line, report):
         verdict_change = raw.split("verdict:", 1)[1].strip()
         old_verdict, new_verdict = [x.strip() for x in verdict_change.split("->", 1)]
 
-        if new_verdict in ("ATTRACTIVE SETUP", "WATCH - PULLBACK OPPORTUNITY"):
+        ranks = {
+            "CAUTION - WEAK FUNDAMENTALS": 1,
+            "CAUTION - NEGATIVE NEWS": 1,
+            "CAUTION - WEAK TECHNICALS": 1,
+            "WATCH - VERIFY FUNDAMENTALS": 2,
+            "WAIT FOR BETTER ENTRY": 3,
+            "WATCH": 3,
+            "WATCH - PULLBACK": 3,
+            "WATCH - PRICE EXTENDED": 3,
+            "WATCH - PULLBACK OPPORTUNITY": 4,
+            "ATTRACTIVE - PRICE EXTENDED": 5,
+            "ATTRACTIVE - BUT MONITOR NEWS": 5,
+            "ATTRACTIVE SETUP": 6,
+        }
+
+        old_rank = ranks.get(old_verdict, 3)
+        new_rank = ranks.get(new_verdict, 3)
+
+        if old_verdict == "WAIT FOR BETTER ENTRY" and new_verdict == "WATCH":
+            return "🟢", "La situation s’améliore : il n’y a plus de raison technique forte d’attendre une baisse avant d’envisager une entrée."
+
+        if old_verdict == "INCOMPLETE DATA" and new_verdict == "WATCH - VERIFY FUNDAMENTALS":
+            return "🟠", "L’analyse est maintenant plus précise, mais les fondamentaux restent trop incertains pour conclure."
+
+        if new_rank > old_rank:
             return "🟢", "La situation s’améliore : le titre devient plus intéressant pour envisager un achat."
 
-        if new_verdict in ("WAIT FOR BETTER ENTRY", "WATCH - VERIFY FUNDAMENTALS"):
-            return "🔴", "La situation se dégrade : mieux vaut attendre avant d’envisager un achat."
+        if new_rank < old_rank:
+            if new_rank <= 2:
+                return "🔴", "La situation se dégrade : la prudence devient plus importante."
+            return "🟠", "La situation devient un peu moins favorable pour une nouvelle entrée."
+
+        if new_verdict == "ATTRACTIVE - PRICE EXTENDED":
+            return "🟠", "Le dossier reste attractif, mais le prix est maintenant plus tendu."
+
+        if new_verdict == "WATCH - PRICE EXTENDED":
+            return "🟠", "La tendance reste à surveiller et le prix est actuellement tendu."
 
     if change is not None:
         if change > 5:
             return "🔴", "Le cours a fortement monté : le prix est maintenant moins intéressant pour acheter."
 
-        if change < 0 and "WAIT FOR BETTER ENTRY" in verdict:
-            return "🟢", "Le cours baisse : il se rapproche d’un prix plus intéressant pour acheter."
+        if change < 0 and (
+            "WAIT FOR BETTER ENTRY" in verdict
+            or "PRICE EXTENDED" in verdict
+        ):
+            return "🟢", "Le cours baisse : le prix devient un peu plus intéressant pour une entrée."
 
         if change > 0 and "WATCH - VERIFY FUNDAMENTALS" in verdict:
             return "🟠", "Le cours monte, mais cela ne rend pas l’achat plus intéressant pour le moment."
@@ -128,6 +167,14 @@ if st.button("🔄 Mettre à jour l’analyse", type="primary"):
 
     if result.returncode == 0:
         st.session_state.report = result.stdout.split("\nSaved:", 1)[0].rstrip()
+
+        comparison = subprocess.run(
+            [sys.executable, str(HERE / "compare_latest.py")],
+            capture_output=True,
+            text=True,
+        )
+        st.session_state.changes = comparison.stdout.strip()
+
         st.success("Analyse terminée")
     else:
         st.error("Erreur pendant l analyse")
