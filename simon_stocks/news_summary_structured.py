@@ -7,6 +7,7 @@ from openai import OpenAI
 from pydantic import BaseModel
 
 from config import WATCHLIST
+from external_news import fetch_external_news
 from news_config import COMPANY_TERMS, SECTOR_TERMS
 
 NEWS_COUNT = 8
@@ -51,21 +52,55 @@ for ticker in WATCHLIST:
         title = c.get("title") or ""
         summary = c.get("summary") or c.get("description") or ""
         if keep(ticker, title, summary):
+            canonical = c.get("canonicalUrl") or {}
             news.append({
                 "title": title,
                 "summary": summary,
                 "date": c.get("pubDate") or "",
+                "source": "Yahoo Finance",
+                "source_type": "AGGREGATOR",
+                "url": canonical.get("url", "") if isinstance(canonical, dict) else str(canonical),
             })
 
+    external_news, source_status = fetch_external_news(ticker)
+    news = external_news + news
+
+    deduplicated = []
+    seen_titles = set()
+    for article in news:
+        normalized = re.sub(r"\W+", " ", article["title"].lower()).strip()
+        if not normalized or normalized in seen_titles:
+            continue
+        seen_titles.add(normalized)
+        deduplicated.append(article)
+    news = deduplicated[:12]
+
     print(ticker)
+    print(
+        "SOURCE STATUS: "
+        f"Yahoo Finance=OK; "
+        f"The Rundown AI={source_status['The Rundown AI']}; "
+        f"Quartr={source_status['Quartr']}"
+    )
 
     if not news:
         print("  No relevant news found.\n")
         continue
 
+    sources_used = list(dict.fromkeys(item["source"] for item in news))
+    print(f"SOURCES: {', '.join(sources_used)}")
+
     prompt = f"""
 Consolidate financial news for ticker {ticker}.
 Use ONLY the supplied titles and summaries. Do not add outside facts.
+
+Source rules:
+- FIRST_PARTY (Quartr) is an official company source. Give it high factual weight,
+  but remember that company communications are not independent validation.
+- EDITORIAL (The Rundown AI) provides AI-sector context and possible early signals.
+- AGGREGATOR (Yahoo Finance) provides broad market coverage.
+- Never treat the number of articles as evidence. Judge distinct facts and source quality.
+- If an article only has a headline, do not infer details that are not stated.
 
 Several articles may describe the same underlying event.
 Merge duplicates so repeated coverage does not amplify the signal.
@@ -83,7 +118,7 @@ If direction is unclear, use NEUTRAL for the event.
 The overall field may be MIXED when meaningful positive and negative evidence coexist.
 Confidence reflects how clearly the supplied articles support the overall assessment.
 
-Articles:
+Articles with provenance:
 {json.dumps(news, ensure_ascii=False)}
 """
 

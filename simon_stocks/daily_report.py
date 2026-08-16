@@ -47,6 +47,10 @@ def parse_news(text):
         if s in WATCHLIST:
             ticker = s
             out[ticker] = {}
+        elif ticker and s.startswith("SOURCE STATUS:"):
+            out[ticker]["source_status"] = s.split(":", 1)[1].strip()
+        elif ticker and s.startswith("SOURCES:"):
+            out[ticker]["sources"] = s.split(":", 1)[1].strip()
         elif ticker and s.startswith("OVERALL:"):
             out[ticker]["overall"] = s.split(":", 1)[1].strip()
         elif ticker and s.startswith("CONFIDENCE:"):
@@ -115,12 +119,16 @@ for ticker in WATCHLIST:
     tech = timing.get(ticker, "N/A")
     overall = n.get("overall", "N/A")
     nconf = n.get("confidence", "N/A")
+    sources = n.get("sources", "Yahoo Finance")
+    source_status = n.get("source_status", "Yahoo Finance=OK")
     view = verdict(score, fconf, tech, overall, nconf)
 
     print(f"\n{ticker}")
     print(f"  Fundamentals: {score if score is not None else 'N/A'}/5 ({fconf})")
     print(f"  Technical:    {tech}")
     print(f"  News:         {overall} ({nconf})")
+    print(f"  News sources: {sources}")
+    print(f"  News source status: {source_status}")
     print(f"  RESEARCH VIEW: {view}")
 
 print("\n" + "=" * 52)

@@ -1,3 +1,4 @@
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -28,9 +29,13 @@ def fr(text):
         "ATTRACTIVE SETUP": "CONFIGURATION ATTRACTIVE",
         "— ATTRACTIVE": "— ATTRACTIF",
         "INCOMPLETE": "INCOMPLET",
+        "NOT CONFIGURED": "NON CONFIGURÉ",
+        "UNAVAILABLE": "INDISPONIBLE",
         "POSITIVE": "POSITIVES",
         "NEGATIVE": "NÉGATIVES",
         "MIXED": "MITIGÉES",
+        "NEUTRAL": "NEUTRE",
+        "UNCLEAR": "INCERTAIN",
         "STRONG": "FORT",
         "WEAK": "FAIBLE",
         "NEARBY": "PROCHE",
@@ -57,6 +62,26 @@ def current_verdict(report, ticker):
         elif inside and line.strip().startswith("Verdict:"):
             return line.split(":", 1)[1].strip()
     return ""
+
+def report_tickers(report):
+    tickers = []
+    for line in (report or "").splitlines():
+        if line.startswith("#") and "—" in line:
+            left = line.split("—", 1)[0].split()
+            if left:
+                tickers.append(left[-1])
+    return tickers or WATCHLIST
+
+def verdict_icon(verdict):
+    if "ATTRACTIVE" in verdict:
+        return "🟢"
+    if "PRICE EXTENDED" in verdict or "PULLBACK" in verdict:
+        return "🟡"
+    if "VERIFY FUNDAMENTALS" in verdict:
+        return "🟠🔴"
+    if "CAUTION" in verdict:
+        return "🔴"
+    return "⚪"
 
 def entry_change_summary(line, report):
     raw = line[2:] if line.startswith("- ") else line
@@ -111,6 +136,21 @@ def entry_change_summary(line, report):
 
         if new_verdict == "WATCH - PRICE EXTENDED":
             return "🟠", "La tendance reste à surveiller et le prix est actuellement tendu."
+
+    if "news:" in raw:
+        news_change = raw.split("news:", 1)[1].split(" | ", 1)[0].strip()
+        old_news, new_news = [x.strip() for x in news_change.split("->", 1)]
+        news_ranks = {
+            "NEGATIVE": 0,
+            "NEUTRAL": 1,
+            "MIXED": 1,
+            "POSITIVE": 2,
+        }
+        if news_ranks.get(new_news, 1) > news_ranks.get(old_news, 1):
+            return "🟢", "Les actualités deviennent plus favorables pour le dossier."
+        if news_ranks.get(new_news, 1) < news_ranks.get(old_news, 1):
+            return "🟠", "Les actualités deviennent moins favorables et méritent davantage de surveillance."
+        return "🟠", "La tonalité des actualités a changé, sans modifier clairement l’intérêt du titre."
 
     if change is not None:
         if change > 5:
@@ -193,6 +233,86 @@ b2.metric("💸 Dépensé par l outil", f"${spent:.4f}")
 b3.metric("💰 Solde estimé", f"${remaining:.2f}")
 st.caption("Solde estimé localement à partir du dernier solde OpenAI renseigné.")
 
+market_news_path = HERE / "history" / "ai_market_news_latest.json"
+if market_news_path.exists():
+    try:
+        market_news = json.loads(market_news_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        market_news = None
+
+    if market_news:
+        st.subheader("🧠 Actualités majeures de l’IA")
+        source_status = market_news.get("source_status", {})
+        st.caption(
+            "Sources : "
+            + " · ".join(
+                f"{source}={fr(status)}"
+                for source, status in source_status.items()
+            )
+        )
+
+        market_items = market_news.get("items", [])
+        if not market_items:
+            st.info("Aucune actualité suffisamment importante n’a été retenue.")
+
+        impact_icons = {
+            "POSITIVE": "🟢",
+            "NEGATIVE": "🔴",
+            "MIXED": "🟠",
+            "UNCLEAR": "⚪",
+        }
+        positioning_labels = {
+            "POSITION TO STUDY": "POSITION À ÉTUDIER",
+            "WAIT FOR CONFIRMATION": "ATTENDRE UNE CONFIRMATION",
+            "DO NOT POSITION ON THIS NEWS ALONE": "NE PAS SE POSITIONNER SUR CETTE SEULE NEWS",
+        }
+
+        for item in market_items:
+            with st.container(border=True):
+                icon = impact_icons.get(item.get("impact"), "⚪")
+                st.subheader(f"{icon} {item.get('event', 'Actualité IA')}")
+                companies = item.get("companies", [])
+                if companies:
+                    st.caption("Entreprises concernées : " + ", ".join(companies))
+                st.write("**Pourquoi c’est important :**", item.get("why_it_matters", "N/A"))
+                st.write(
+                    "**Impact probable :**",
+                    f"{fr(item.get('impact', 'UNCLEAR'))} — confiance {fr(item.get('confidence', 'LOW')).lower()}",
+                )
+
+                positioning = item.get("positioning", "WAIT FOR CONFIRMATION")
+                positioning_text = (
+                    f"{positioning_labels.get(positioning, positioning)} — "
+                    f"{item.get('positioning_reason', '')}"
+                )
+                if positioning == "POSITION TO STUDY":
+                    st.success(positioning_text)
+                elif positioning == "DO NOT POSITION ON THIS NEWS ALONE":
+                    st.error(positioning_text)
+                else:
+                    st.warning(positioning_text)
+
+                st.caption(
+                    "Confirmation nécessaire : "
+                    + item.get("confirmation_needed", "Analyse complémentaire")
+                )
+                st.caption("Sources utilisées : " + ", ".join(item.get("sources", [])))
+
+                links = item.get("links", [])
+                if links:
+                    link_columns = st.columns(min(len(links), 3))
+                    for index, link in enumerate(links[:3]):
+                        with link_columns[index]:
+                            st.link_button(
+                                "Lire la source",
+                                link.get("url", ""),
+                                use_container_width=True,
+                            )
+
+        st.caption(
+            "Lecture de recherche uniquement : une « position à étudier » n’est jamais un ordre d’achat."
+        )
+
 if st.session_state.changes:
     changes = st.session_state.changes
     st.subheader("🔎 Depuis la dernière analyse")
@@ -203,7 +323,7 @@ if st.session_state.changes:
         if line.startswith("- ")
     }
 
-    for ticker in WATCHLIST:
+    for ticker in report_tickers(st.session_state.report):
         if ticker in change_lines:
             line = change_lines[ticker]
             item = fr(line[2:])
@@ -212,7 +332,8 @@ if st.session_state.changes:
             price_text = item.split(" | ", 1)[0]
             st.write(f"{icon} {price_text} — {reason}")
         else:
-            st.write(f"⚪ {ticker} : stable — Aucun changement important depuis la dernière analyse.")
+            icon = verdict_icon(current_verdict(st.session_state.report, ticker))
+            st.write(f"{icon} {ticker} : stable — Aucun changement important depuis la dernière analyse.")
 
 if st.session_state.report:
     report = st.session_state.report
@@ -266,6 +387,15 @@ if st.session_state.report:
                         if len(parts) > 2 else "N/A"
                     )
                 )
+
+            st.caption(
+                "Sources actualités : "
+                + fields.get("Sources news", "Yahoo Finance")
+            )
+            st.caption(
+                "Disponibilité : "
+                + fr(fields.get("Statut sources news", "Yahoo Finance=OK"))
+            )
 
             st.write("**Technique :**", fr(fr(fields.get("Technique", "N/A"))))
 

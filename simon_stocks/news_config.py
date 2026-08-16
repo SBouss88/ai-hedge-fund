@@ -4,6 +4,8 @@ COMPANY_TERMS = {
     "MSFT": ["microsoft"],
     "NBIS": ["nebius"],
     "MU": ["micron"],
+    "GOOGL": ["alphabet", "google"],
+    "SNDK": ["sandisk"],
 }
 
 SECTOR_TERMS = {
@@ -12,4 +14,6 @@ SECTOR_TERMS = {
     "MSFT": ["azure", "copilot", "openai", "cloud", "ai chip", "enterprise ai"],
     "NBIS": ["ai cloud", "gpu cloud", "data center", "ai infrastructure"],
     "MU": ["memory chip", "dram", "hbm", "nand", "semiconductor", "memory"],
+    "GOOGL": ["search advertising", "google cloud", "gemini", "artificial intelligence", "ai model"],
+    "SNDK": ["flash memory", "nand", "data storage", "memory chip", "semiconductor"],
 }

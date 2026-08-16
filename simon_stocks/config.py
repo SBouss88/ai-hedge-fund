@@ -1,1 +1,1 @@
-WATCHLIST = ["TSM", "NVDA", "MSFT", "NBIS", "MU"]
+WATCHLIST = ["TSM", "NVDA", "MSFT", "NBIS", "MU", "GOOGL", "SNDK"]

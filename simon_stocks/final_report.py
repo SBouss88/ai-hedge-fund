@@ -130,6 +130,10 @@ for line in report.splitlines():
         details[current]["technical"] = stripped.split(":", 1)[1].strip()
     elif current and stripped.startswith("News:"):
         details[current]["news"] = stripped.split(":", 1)[1].strip()
+    elif current and stripped.startswith("News sources:"):
+        details[current]["news_sources"] = stripped.split(":", 1)[1].strip()
+    elif current and stripped.startswith("News source status:"):
+        details[current]["news_source_status"] = stripped.split(":", 1)[1].strip()
 
 zone_details = {ticker: {} for ticker in WATCHLIST}
 current = None
@@ -209,6 +213,8 @@ for rank, ticker in enumerate(ranked_tickers, start=1):
         f"News: {d.get("news", "N/A")}"
     )
     print(f"  Technique: {d.get("technical", "N/A")}")
+    print(f"  Sources news: {d.get("news_sources", "Yahoo Finance")}")
+    print(f"  Statut sources news: {d.get("news_source_status", "Yahoo Finance=OK")}")
     print(f"  Support: {zinfo.get("support", "N/A")}")
     print(f"  Resistance: {zinfo.get("resistance", "N/A")}")
     print(f"  Verdict: {view}")

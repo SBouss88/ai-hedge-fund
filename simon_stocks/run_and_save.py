@@ -1,5 +1,6 @@
 from datetime import datetime
 from pathlib import Path
+import json
 import subprocess
 import re
 import sys
@@ -22,10 +23,37 @@ if result.returncode != 0:
 
 report = result.stdout
 
+market_result = subprocess.run(
+    [sys.executable, str(HERE / "ai_market_news.py")],
+    capture_output=True,
+    text=True,
+)
+market_data = None
+if market_result.returncode == 0:
+    try:
+        market_data = json.loads(market_result.stdout)
+        (HISTORY_DIR / "ai_market_news_latest.json").write_text(
+            json.dumps(market_data, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except json.JSONDecodeError:
+        print("AI market news returned invalid data.", file=sys.stderr)
+elif market_result.stderr:
+    print(market_result.stderr, file=sys.stderr, end="")
+
+input_tokens = 0
+output_tokens = 0
 usage = re.search(r"TOTAL AI TOKENS:\s*(\d+) input / (\d+) output", report)
 if usage:
-    input_tokens = int(usage.group(1))
-    output_tokens = int(usage.group(2))
+    input_tokens += int(usage.group(1))
+    output_tokens += int(usage.group(2))
+
+if market_data:
+    market_usage = market_data.get("usage", {})
+    input_tokens += int(market_usage.get("input", 0))
+    output_tokens += int(market_usage.get("output", 0))
+
+if input_tokens or output_tokens:
     analysis_cost = (input_tokens * 0.20 + output_tokens * 1.20) / 1_000_000
 
     spent_path = HISTORY_DIR / "openai_spent.txt"
@@ -34,6 +62,11 @@ if usage:
     spent_path.write_text(f"{total_spent:.8f}", encoding="utf-8")
 
     print(f"OpenAI estimated cost: ${analysis_cost:.4f}")
+    if market_data:
+        print(
+            "AI market news: "
+            f"{len(market_data.get('items', []))} major event(s) selected"
+        )
 stamp = datetime.now().astimezone().strftime("%Y-%m-%d_%H-%M-%S")
 path = HISTORY_DIR / f"report_{stamp}.txt"
 path.write_text(report, encoding="utf-8")
