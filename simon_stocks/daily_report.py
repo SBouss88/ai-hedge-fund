@@ -26,6 +26,19 @@ def parse_timing(text):
             out[ticker] = s.split(":", 1)[1].strip()
     return out
 
+def parse_rsi(text):
+    out, ticker = {}, None
+    for line in text.splitlines():
+        s = line.strip()
+        m = re.match(r"^([A-Z]+):", s)
+        if m and m.group(1) in WATCHLIST:
+            ticker = m.group(1)
+        elif ticker and "RSI:" in s:
+            match = re.search(r"RSI:\s*([0-9.]+)", s)
+            if match:
+                out[ticker] = float(match.group(1))
+    return out
+
 def parse_fundamentals(text):
     out, ticker = {}, None
     for line in text.splitlines():
@@ -92,7 +105,9 @@ def verdict(score, fconf, timing, news, nconf):
 
 print("\nSIMON AI STOCK WATCHLIST - COMBINED REPORT\n")
 print("Running technical analysis...")
-timing = parse_timing(run("analyze.py"))
+raw_technical = run("analyze.py")
+timing = parse_timing(raw_technical)
+rsi = parse_rsi(raw_technical)
 print("Running fundamentals...")
 fund = parse_fundamentals(run("fundamental_scores.py"))
 print("Running AI news analysis...")
@@ -117,6 +132,7 @@ for ticker in WATCHLIST:
     score = f.get("score")
     fconf = f.get("confidence", "N/A")
     tech = timing.get(ticker, "N/A")
+    rsi14 = rsi.get(ticker)
     overall = n.get("overall", "N/A")
     nconf = n.get("confidence", "N/A")
     sources = n.get("sources", "Yahoo Finance")
@@ -126,6 +142,7 @@ for ticker in WATCHLIST:
     print(f"\n{ticker}")
     print(f"  Fundamentals: {score if score is not None else 'N/A'}/5 ({fconf})")
     print(f"  Technical:    {tech}")
+    print(f"  RSI14:        {rsi14:.1f}" if rsi14 is not None else "  RSI14:        N/A")
     print(f"  News:         {overall} ({nconf})")
     print(f"  News sources: {sources}")
     print(f"  News source status: {source_status}")

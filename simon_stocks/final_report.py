@@ -128,6 +128,8 @@ for line in report.splitlines():
         details[current]["fundamentals"] = stripped.split(":", 1)[1].strip()
     elif current and stripped.startswith("Technical:"):
         details[current]["technical"] = stripped.split(":", 1)[1].strip()
+    elif current and stripped.startswith("RSI14:"):
+        details[current]["rsi14"] = stripped.split(":", 1)[1].strip()
     elif current and stripped.startswith("News:"):
         details[current]["news"] = stripped.split(":", 1)[1].strip()
     elif current and stripped.startswith("News sources:"):
@@ -213,6 +215,7 @@ for rank, ticker in enumerate(ranked_tickers, start=1):
         f"News: {d.get("news", "N/A")}"
     )
     print(f"  Technique: {d.get("technical", "N/A")}")
+    print(f"  RSI14: {d.get("rsi14", "N/A")}")
     print(f"  Sources news: {d.get("news_sources", "Yahoo Finance")}")
     print(f"  Statut sources news: {d.get("news_source_status", "Yahoo Finance=OK")}")
     print(f"  Support: {zinfo.get("support", "N/A")}")

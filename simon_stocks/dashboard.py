@@ -83,6 +83,17 @@ def verdict_icon(verdict):
         return "🔴"
     return "⚪"
 
+def rsi_label(value):
+    try:
+        rsi = float(value)
+    except (TypeError, ValueError):
+        return "⚪ Indisponible"
+    if rsi >= 70:
+        return "🟠 Prix tendu"
+    if rsi <= 30:
+        return "🔵 Faible / survendu"
+    return "⚪ Zone neutre"
+
 def entry_change_summary(line, report):
     raw = line[2:] if line.startswith("- ") else line
     ticker = raw.split(":", 1)[0].strip()
@@ -364,7 +375,7 @@ if st.session_state.report:
         with st.container(border=True):
             st.subheader(fr(header))
 
-            c1, c2, c3 = st.columns(3)
+            c1, c2, c3, c4 = st.columns(4)
 
             summary = fields.get("Prix", "")
             parts = [x.strip() for x in summary.split("|")]
@@ -387,6 +398,11 @@ if st.session_state.report:
                         if len(parts) > 2 else "N/A"
                     )
                 )
+            with c4:
+                rsi14 = fields.get("RSI14", "N/A")
+                st.caption("RSI14")
+                st.markdown("### " + rsi14)
+                st.caption(rsi_label(rsi14))
 
             st.caption(
                 "Sources actualités : "
