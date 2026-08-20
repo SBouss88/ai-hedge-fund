@@ -41,6 +41,38 @@ if market_result.returncode == 0:
 elif market_result.stderr:
     print(market_result.stderr, file=sys.stderr, end="")
 
+earnings_result = subprocess.run(
+    [sys.executable, str(HERE / "earnings_calendar.py")],
+    capture_output=True,
+    text=True,
+)
+if earnings_result.returncode != 0 and earnings_result.stderr:
+    print(earnings_result.stderr, file=sys.stderr, end="")
+
+ranking_result = subprocess.run(
+    [sys.executable, str(HERE / "quick_rankings.py")],
+    capture_output=True,
+    text=True,
+)
+if ranking_result.returncode != 0 and ranking_result.stderr:
+    print(ranking_result.stderr, file=sys.stderr, end="")
+
+valuation_result = subprocess.run(
+    [sys.executable, str(HERE / "valuation.py")],
+    capture_output=True,
+    text=True,
+)
+if valuation_result.returncode != 0 and valuation_result.stderr:
+    print(valuation_result.stderr, file=sys.stderr, end="")
+
+audit_result = subprocess.run(
+    [sys.executable, str(HERE / "market_data_audit.py")],
+    capture_output=True,
+    text=True,
+)
+if audit_result.returncode != 0 and audit_result.stderr:
+    print(audit_result.stderr, file=sys.stderr, end="")
+
 input_tokens = 0
 output_tokens = 0
 usage = re.search(r"TOTAL AI TOKENS:\s*(\d+) input / (\d+) output", report)

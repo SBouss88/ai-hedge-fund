@@ -25,10 +25,14 @@ def parse_report(path):
             if match:
                 data[current]["price"] = float(match.group(1).replace(",", ""))
 
-            match = re.search(r"Fondamentaux: ([0-9.]+)/5 \(([^)]+)\)", line)
+            match = re.search(
+                r"Fondamentaux: ([0-9.]+)/(5|100) \(([^)]+)\)",
+                line,
+            )
             if match:
                 data[current]["fundamentals"] = match.group(1)
-                data[current]["fund_confidence"] = match.group(2)
+                data[current]["fund_scale"] = match.group(2)
+                data[current]["fund_confidence"] = match.group(3)
 
             match = re.search(r"News: ([A-Z]+) \(([^)]+)\)", line)
             if match:
@@ -65,7 +69,7 @@ for ticker, now in new.items():
     new_price = now.get("price")
     if old_price and new_price:
         pct = (new_price / old_price - 1) * 100
-        if abs(pct) >= 1:
+        if abs(pct) >= 3:
             ticker_changes.append(f"price {pct:+.1f}%")
 
     if now.get("verdict") != before.get("verdict"):
@@ -73,12 +77,15 @@ for ticker, now in new.items():
             f"verdict: {before.get("verdict")} -> {now.get("verdict")}"
         )
 
-    if now.get("news") != before.get("news"):
+    if (
+        now.get("news") == "NEGATIVE"
+        and before.get("news") != "NEGATIVE"
+    ):
         ticker_changes.append(
             f"news: {before.get("news")} -> {now.get("news")}"
         )
 
-    if (
+    if before.get("fund_scale") == now.get("fund_scale") and (
         now.get("fundamentals"),
         now.get("fund_confidence"),
     ) != (

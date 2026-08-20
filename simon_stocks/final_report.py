@@ -79,6 +79,7 @@ Regles:
 - Ne change jamais le RESEARCH VIEW.
 - N'invente aucun fait, prevision, objectif de cours, support ou prix d'entree.
 - why: 1 a 2 phrases courtes expliquant le verdict.
+- Dans why, explique directement les raisons sans répéter mot pour mot le nom du verdict.
 - positives: 1 a 3 points.
 - risks: 1 a 3 points.
 - change_conditions: 1 a 3 conditions concretes qui amelioreraient ou deterioreraient le setup.

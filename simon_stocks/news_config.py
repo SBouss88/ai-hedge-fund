@@ -6,6 +6,13 @@ COMPANY_TERMS = {
     "MU": ["micron"],
     "GOOGL": ["alphabet", "google"],
     "SNDK": ["sandisk"],
+    "AVGO": ["broadcom", "vmware"],
+    "AMD": ["advanced micro devices", "amd"],
+    "ASML": ["asml"],
+    "AMZN": ["amazon", "aws", "amazon web services"],
+    "SDGR": ["schrodinger", "schrödinger"],
+    "RXRX": ["recursion pharmaceuticals", "recursion"],
+    "ABSI": ["absci"],
 }
 
 SECTOR_TERMS = {
@@ -16,4 +23,11 @@ SECTOR_TERMS = {
     "MU": ["memory chip", "dram", "hbm", "nand", "semiconductor", "memory"],
     "GOOGL": ["search advertising", "google cloud", "gemini", "artificial intelligence", "ai model"],
     "SNDK": ["flash memory", "nand", "data storage", "memory chip", "semiconductor"],
+    "AVGO": ["ai chip", "custom accelerator", "networking chip", "semiconductor", "data center", "vmware"],
+    "AMD": ["gpu", "cpu", "ai accelerator", "semiconductor", "data center", "instinct"],
+    "ASML": ["lithography", "euv", "semiconductor equipment", "chipmaking equipment", "high-na"],
+    "AMZN": ["aws", "amazon web services", "cloud", "bedrock", "trainium", "artificial intelligence"],
+    "SDGR": ["ai drug discovery", "computational chemistry", "molecular simulation", "drug discovery platform", "biotech"],
+    "RXRX": ["ai drug discovery", "techbio", "drug discovery platform", "phenomics", "biotech"],
+    "ABSI": ["generative ai", "drug creation", "biologics", "protein design", "ai drug discovery", "biotech"],
 }

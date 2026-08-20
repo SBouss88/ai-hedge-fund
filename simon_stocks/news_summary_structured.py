@@ -7,7 +7,7 @@ from openai import OpenAI
 from pydantic import BaseModel
 
 from config import WATCHLIST
-from external_news import fetch_external_news
+from external_news import classify_news_event, fetch_external_news, is_recent_news
 from news_config import COMPANY_TERMS, SECTOR_TERMS
 
 NEWS_COUNT = 8
@@ -59,6 +59,7 @@ for ticker in WATCHLIST:
                 "date": c.get("pubDate") or "",
                 "source": "Yahoo Finance",
                 "source_type": "AGGREGATOR",
+                "event_type": classify_news_event(title),
                 "url": canonical.get("url", "") if isinstance(canonical, dict) else str(canonical),
             })
 
@@ -73,12 +74,14 @@ for ticker in WATCHLIST:
             continue
         seen_titles.add(normalized)
         deduplicated.append(article)
-    news = deduplicated[:12]
+    news = [article for article in deduplicated if is_recent_news(article)][:12]
 
     print(ticker)
     print(
         "SOURCE STATUS: "
         f"Yahoo Finance=OK; "
+        f"SEC/EDGAR={source_status['SEC/EDGAR']}; "
+        f"Company IR={source_status['Company IR']}; "
         f"The Rundown AI={source_status['The Rundown AI']}; "
         f"Quartr={source_status['Quartr']}"
     )
@@ -95,12 +98,14 @@ Consolidate financial news for ticker {ticker}.
 Use ONLY the supplied titles and summaries. Do not add outside facts.
 
 Source rules:
-- FIRST_PARTY (Quartr) is an official company source. Give it high factual weight,
+- FIRST_PARTY (SEC/EDGAR, Company IR or Quartr) is an official company source. Give it high factual weight,
   but remember that company communications are not independent validation.
 - EDITORIAL (The Rundown AI) provides AI-sector context and possible early signals.
 - AGGREGATOR (Yahoo Finance) provides broad market coverage.
 - Never treat the number of articles as evidence. Judge distinct facts and source quality.
 - If an article only has a headline, do not infer details that are not stated.
+- Treat recent QUARTERLY_RESULTS as high-priority events because they can materially
+  change the investment thesis. Do not invent missing figures or guidance.
 
 Several articles may describe the same underlying event.
 Merge duplicates so repeated coverage does not amplify the signal.

@@ -1,3 +1,4 @@
+import json
 import re
 import subprocess
 import sys
@@ -39,19 +40,24 @@ def parse_rsi(text):
                 out[ticker] = float(match.group(1))
     return out
 
-def parse_fundamentals(text):
-    out, ticker = {}, None
-    for line in text.splitlines():
-        s = line.strip()
-        if s in WATCHLIST:
-            ticker = s
-            out[ticker] = {}
-        elif ticker and s.startswith("Fundamental:"):
-            m = re.search(r"([0-9.]+)/5", s)
-            out[ticker]["score"] = float(m.group(1)) if m else None
-        elif ticker and s.startswith("Data confidence:"):
-            out[ticker]["confidence"] = s.split(":", 1)[1].strip()
-    return out
+def load_fundamentals():
+    path = HERE / "history" / "fundamental_scores_latest.json"
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    return {
+        item["ticker"]: {
+            "score": item.get("score"),
+            "confidence": item.get("confidence", "LOW"),
+            "category": item.get("category", "WATCHLIST"),
+            "max_exposure_usd": item.get("max_exposure_usd", 0),
+        }
+        for item in payload.get("items", [])
+        if item.get("ticker") in WATCHLIST
+    }
 
 def parse_news(text):
     out, ticker = {}, None
@@ -80,8 +86,8 @@ def verdict(score, fconf, timing, news, nconf):
     if score is None:
         return "INCOMPLETE DATA"
 
-    if score < 3.0:
-        return "CAUTION - WEAK FUNDAMENTALS"
+    if score < 55:
+        return "WATCH - VERIFY FUNDAMENTALS"
 
     if news == "NEGATIVE" and nconf == "HIGH":
         return "CAUTION - NEGATIVE NEWS"
@@ -90,14 +96,14 @@ def verdict(score, fconf, timing, news, nconf):
         return "CAUTION - WEAK TECHNICALS"
 
     if timing == "POSITIVE MOMENTUM - PRICE EXTENDED":
-        if score >= 4.0:
+        if score >= 55:
             return "ATTRACTIVE - PRICE EXTENDED"
         return "WATCH - PRICE EXTENDED"
 
-    if score >= 4.0 and timing == "POSITIVE MOMENTUM":
+    if score >= 55 and timing == "POSITIVE MOMENTUM":
         return "ATTRACTIVE SETUP" if news == "POSITIVE" else "ATTRACTIVE - BUT MONITOR NEWS"
 
-    if score >= 4.0 and timing == "WATCH - PULLBACK":
+    if score >= 55 and timing == "WATCH - PULLBACK":
         return "WATCH - PULLBACK"
 
     return "WATCH"
@@ -108,8 +114,8 @@ print("Running technical analysis...")
 raw_technical = run("analyze.py")
 timing = parse_timing(raw_technical)
 rsi = parse_rsi(raw_technical)
-print("Running fundamentals...")
-fund = parse_fundamentals(run("fundamental_scores.py"))
+print("Loading persistent fundamental scores...")
+fund = load_fundamentals()
 print("Running AI news analysis...")
 raw_news = run("news_summary_structured.py")
 news = parse_news(raw_news)
@@ -131,6 +137,8 @@ for ticker in WATCHLIST:
     n = news.get(ticker, {})
     score = f.get("score")
     fconf = f.get("confidence", "N/A")
+    category = f.get("category", "N/A")
+    max_exposure = f.get("max_exposure_usd", 0)
     tech = timing.get(ticker, "N/A")
     rsi14 = rsi.get(ticker)
     overall = n.get("overall", "N/A")
@@ -140,7 +148,15 @@ for ticker in WATCHLIST:
     view = verdict(score, fconf, tech, overall, nconf)
 
     print(f"\n{ticker}")
-    print(f"  Fundamentals: {score if score is not None else 'N/A'}/5 ({fconf})")
+    print(
+        f"  Fundamentals: {score if score is not None else 'N/A'}/100 "
+        f"({fconf}) · Category {category} · "
+        + (
+            f"Max exposure ${max_exposure:,.0f}"
+            if max_exposure
+            else "Watchlist only"
+        )
+    )
     print(f"  Technical:    {tech}")
     print(f"  RSI14:        {rsi14:.1f}" if rsi14 is not None else "  RSI14:        N/A")
     print(f"  News:         {overall} ({nconf})")
