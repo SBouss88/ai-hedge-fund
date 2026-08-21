@@ -3,11 +3,21 @@ from pathlib import Path
 import json
 import subprocess
 import re
+import shutil
 import sys
 
 HERE = Path(__file__).resolve().parent
 HISTORY_DIR = HERE / "history"
 HISTORY_DIR.mkdir(exist_ok=True)
+
+for latest_name, previous_name in (
+    ("quick_rankings_latest.json", "quick_rankings_previous.json"),
+    ("valuation_latest.json", "valuation_previous.json"),
+    ("earnings_calendar_latest.json", "earnings_calendar_previous.json"),
+):
+    latest_path = HISTORY_DIR / latest_name
+    if latest_path.exists():
+        shutil.copyfile(latest_path, HISTORY_DIR / previous_name)
 
 result = subprocess.run(
     [sys.executable, str(HERE / "final_report.py")],
@@ -72,6 +82,14 @@ audit_result = subprocess.run(
 )
 if audit_result.returncode != 0 and audit_result.stderr:
     print(audit_result.stderr, file=sys.stderr, end="")
+
+signal_journal_result = subprocess.run(
+    [sys.executable, str(HERE / "signal_journal.py")],
+    capture_output=True,
+    text=True,
+)
+if signal_journal_result.returncode != 0 and signal_journal_result.stderr:
+    print(signal_journal_result.stderr, file=sys.stderr, end="")
 
 input_tokens = 0
 output_tokens = 0

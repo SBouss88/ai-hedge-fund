@@ -249,20 +249,122 @@ def positioning_summary(view, earnings_days):
     return "SURVEILLER", "yellow"
 
 
-def technical_setup_label(score):
+def has_confirmed_trigger(item):
+    return (item or {}).get("setup_type") in (
+        "HIGHER LOW",
+        "BREAKOUT",
+        "RETOURNEMENT CONFIRMÉ",
+        "PULLBACK CONFIRMÉ",
+        "STABILISATION CONFIRMÉE",
+    )
+
+
+def technical_signal_ready(item):
+    item = item or {}
+    score = item.get("score", 0)
+    setup_type = item.get("setup_type")
+    if setup_type in ("RETOURNEMENT CONFIRMÉ", "PULLBACK CONFIRMÉ"):
+        return score >= 60
+    return score >= 65 and has_confirmed_trigger(item)
+
+
+def technical_blocker_text(item):
+    item = item or {}
+    score = item.get("score", 0)
+    setup_type = item.get("setup_type", "AUCUN")
+    if setup_type == "RETOURNEMENT":
+        return "retournement à confirmer une séance"
+    if setup_type == "PULLBACK FAVORABLE":
+        return "zone de pullback favorable · reprise à confirmer"
+    if setup_type == "HIGHER LOW À CONFIRMER":
+        return "higher low valide · attendre une clôture confirmant le rebond"
+    if setup_type == "CHOC EN STABILISATION":
+        return "choc à fort volume · attendre deux séances de stabilisation"
+    if setup_type == "BREAKOUT FAIBLE":
+        return "breakout non confirmé par le volume"
+    if setup_type in ("RETOURNEMENT CONFIRMÉ", "PULLBACK CONFIRMÉ") and score < 60:
+        return f"technique {score}/100, seuil d’entrée progressive 60"
+    if score < 65:
+        return f"technique {score}/100, seuil standard 65"
+    return "déclencheur technique non confirmé"
+
+
+def technical_setup_label(score, setup_type=None):
     try:
         value = int(score)
     except (TypeError, ValueError):
         return "INDISPONIBLE"
-    if value >= 85:
+    confirmed = setup_type in (
+        "HIGHER LOW",
+        "BREAKOUT",
+        "RETOURNEMENT CONFIRMÉ",
+        "PULLBACK CONFIRMÉ",
+        "STABILISATION CONFIRMÉE",
+    )
+    if setup_type in ("RETOURNEMENT CONFIRMÉ", "PULLBACK CONFIRMÉ") and value >= 60:
+        return "EARLY SETUP"
+    if confirmed and value >= 85:
         return "EXCEPTIONAL SETUP"
-    if value >= 75:
+    if confirmed and value >= 75:
         return "VERY GOOD SETUP"
-    if value >= 65:
+    if confirmed and value >= 65:
         return "GOOD SETUP"
     if value >= 50:
         return "WATCH"
     return "WAIT"
+
+
+def structured_positioning(technical_item, fundamental_item, valuation_item, days):
+    fundamental_score = (fundamental_item or {}).get("score")
+    max_exposure = (fundamental_item or {}).get("max_exposure_usd", 0)
+    valuation_label = (valuation_item or {}).get("label", "INDISPONIBLE")
+    score = (technical_item or {}).get("score", 0)
+    phase = (technical_item or {}).get("phase")
+
+    if fundamental_score is None or fundamental_score < 55 or max_exposure <= 0:
+        return "SURVEILLANCE UNIQUEMENT — RISQUE FONDAMENTAL", "orange"
+    if valuation_label in ("TRÈS CHÈRE", "INDISPONIBLE"):
+        return "ATTENDRE — VALORISATION NON FAVORABLE", "orange"
+    if days is not None and days <= 7:
+        return "ATTENDRE LES RÉSULTATS", "orange"
+    if technical_signal_ready(technical_item):
+        if (technical_item or {}).get("setup_type") in (
+            "RETOURNEMENT CONFIRMÉ",
+            "PULLBACK CONFIRMÉ",
+        ):
+            return "ENTRÉE PROGRESSIVE À ÉTUDIER", "green"
+        return "CONFIGURATION FAVORABLE — OPPORTUNITÉ À ÉTUDIER", "green"
+    if phase == "RETOURNEMENT À CONFIRMER":
+        return "SURVEILLER — RETOURNEMENT À CONFIRMER", "yellow"
+    if phase == "ZONE DE PULLBACK FAVORABLE":
+        return "SURVEILLER — ZONE DE PULLBACK FAVORABLE", "yellow"
+    if phase == "STABILISATION APRÈS CHOC EN COURS":
+        return "SURVEILLER — STABILISATION APRÈS CHOC", "yellow"
+    if phase == "BREAKOUT À CONFIRMER":
+        return "SURVEILLER — BREAKOUT SANS VOLUME", "yellow"
+    if phase == "HIGHER LOW EN FORMATION":
+        return "SURVEILLER — HIGHER LOW EN FORMATION", "yellow"
+    if phase == "HIGHER LOW À CONFIRMER":
+        return "SURVEILLER — REBOND DU HIGHER LOW À CONFIRMER", "yellow"
+    if score >= 50:
+        return "SURVEILLER — CONFIRMATION TECHNIQUE MANQUANTE", "yellow"
+    return "ATTENDRE UN SIGNAL TECHNIQUE", "yellow"
+
+
+def structured_technical_reading(item):
+    if not item:
+        return "Données techniques structurées indisponibles."
+    trend = item.get("trend_regime", "indisponible")
+    phase = item.get("phase", "indisponible")
+    components = item.get("components", {})
+    trigger = components.get("trigger", {}).get("detail", "")
+    volume = components.get("volume", {}).get("detail", "")
+    return (
+        f"Tendance de fond : {trend}. Phase actuelle : {phase}. "
+        f"{trigger}. {volume}. "
+        f"Timing technique : {item.get('score', 'N/A')}/100 — "
+        f"{technical_setup_label(item.get('score'), item.get('setup_type'))}."
+    )
 
 
 def level_distance(value, direction):
@@ -361,14 +463,22 @@ def compact_max_exposure(value):
     return f"{amount // 1000}k" if amount > 0 else "—"
 
 
-def comparison_action_label(ticker, technical_item, earnings_item, report):
-    score = (technical_item or {}).get("score", 0)
-    verdict = current_verdict(report or "", ticker)
+def comparison_action_label(
+    technical_item,
+    fundamental_item,
+    valuation_item,
+    earnings_item,
+):
     earnings_days = earnings_days_until(earnings_item or {})
-    _, positioning_color = positioning_summary(verdict, earnings_days)
-    if score >= 65 and positioning_color == "green":
+    action, color = structured_positioning(
+        technical_item,
+        fundamental_item,
+        valuation_item,
+        earnings_days,
+    )
+    if color == "green":
         return "Étudier une entrée", True
-    if score >= 50:
+    if "SURVEILLER" in action:
         return "Surveiller", False
     return "Attendre", False
 
@@ -400,28 +510,89 @@ def render_change_list(changes, report, selected_universe):
         if ticker not in change_lines:
             continue
         line = change_lines[ticker]
-        news_change = re.match(
-            r"^-\s+([A-Z0-9.]+):\s+news:\s+\S+\s+(?:->|→)\s+(\S+)",
-            line,
-        )
-        if news_change:
-            changed_ticker, current_news = news_change.groups()
-            icon, _ = entry_change_summary(line, report)
-            st.markdown(
-                f"- {icon} **{changed_ticker}** — Actualités récentes : "
-                f"{fr(current_news).lower()}."
+        raw_changes = line.split(":", 1)[1].strip().split(" | ")
+        facts = []
+        for raw_change in raw_changes:
+            if raw_change == "new ticker":
+                facts.append("Nouveau titre ajouté")
+                continue
+
+            match = re.fullmatch(
+                r"technical score (-?\d+) (?:->|→) (-?\d+)",
+                raw_change,
             )
-            rendered += 1
-            continue
-        item = fr(line[2:])
-        item = (
-            item.replace("price ", "prix ")
-            .replace("verdict:", "verdict :")
-            .replace(" -> ", " → ")
-        )
-        icon, reason = entry_change_summary(line, report)
-        price_text = item.split(" | ", 1)[0]
-        st.markdown(f"- {icon} **{price_text}** — {reason}")
+            if match:
+                before, now = match.groups()
+                facts.append(f"Score technique : {before} → {now}")
+                continue
+
+            match = re.fullmatch(
+                r"technical band (.+) (?:->|→) (.+)",
+                raw_change,
+            )
+            if match:
+                before, now = match.groups()
+                facts.append(f"Statut technique : {before} → {now}")
+                continue
+
+            match = re.fullmatch(r"setup (.+) (?:->|→) (.+)", raw_change)
+            if match:
+                before, now = match.groups()
+                if before == "AUCUN":
+                    facts.append(f"Nouveau setup détecté : {now}")
+                elif now == "AUCUN":
+                    facts.append(f"Setup {before} invalidé")
+                else:
+                    facts.append(f"Type de setup : {before} → {now}")
+                continue
+
+            match = re.fullmatch(
+                r"valuation (.+) (?:->|→) (.+)",
+                raw_change,
+            )
+            if match:
+                before, now = match.groups()
+                facts.append(f"Valorisation : {fr(before)} → {fr(now)}")
+                continue
+
+            match = re.fullmatch(
+                r"earnings date ([0-9-]+) (?:->|→) ([0-9-]+)",
+                raw_change,
+            )
+            if match:
+                before, now = match.groups()
+                facts.append(f"Date des résultats modifiée : {before} → {now}")
+                continue
+
+            match = re.fullmatch(r"earnings now J-(\d+)", raw_change)
+            if match:
+                facts.append(f"Résultats désormais à J-{match.group(1)}")
+                continue
+
+            match = re.fullmatch(
+                r"news: (\S+) (?:->|→) (\S+)",
+                raw_change,
+            )
+            if match:
+                before, now = match.groups()
+                facts.append(f"Actualités : {fr(before)} → {fr(now)}")
+                continue
+
+            match = re.fullmatch(r"price ([+-][0-9.]+)%", raw_change)
+            if match:
+                facts.append(f"Variation du cours : {match.group(1)} %")
+                continue
+
+            if raw_change.startswith("fundamentals:"):
+                facts.append(
+                    raw_change.replace("fundamentals:", "Fondamental :")
+                    .replace(" -> ", " → ")
+                )
+                continue
+
+            facts.append(raw_change.replace(" -> ", " → "))
+
+        st.markdown(f"- **{ticker}** — " + " · ".join(facts) + ".")
         rendered += 1
     return rendered
 
@@ -431,7 +602,13 @@ def numeric_level_distance(value):
     return float(match.group(1)) if match else None
 
 
-def critical_alerts(fields, earnings_days, technical_item, audit_item):
+def critical_alerts(
+    fields,
+    earnings_days,
+    technical_item,
+    audit_item,
+    signal_record=None,
+):
     alerts = []
     if earnings_days is not None and earnings_days <= 7:
         alerts.append(f"⚠ Résultats J-{earnings_days}")
@@ -443,16 +620,36 @@ def critical_alerts(fields, earnings_days, technical_item, audit_item):
     components = (technical_item or {}).get("components", {})
     trigger = components.get("trigger", components.get("breakout", {}))
     volume = components.get("volume", {})
-    if (technical_item or {}).get("setup_type") == "BREAKOUT" and trigger.get(
+    if (technical_item or {}).get("setup_type") in (
+        "BREAKOUT",
+        "BREAKOUT FAIBLE",
+    ) and trigger.get(
         "score", 0
     ) >= 8 and (
         volume.get("score", 0) <= 5
         or "faible" in volume.get("detail", "").lower()
     ):
-        alerts.append("⚠ Volume de breakout faible")
+        alerts.append("⚠ Breakout non confirmé : volume faible")
 
     if (technical_item or {}).get("rapid_improvement"):
         alerts.append("↗ Setup en amélioration rapide")
+    if technical_signal_ready(technical_item):
+        alerts.append("Condition d’exécution : ne pas poursuivre une ouverture > +2 %")
+    if signal_record and signal_record.get("signal_event"):
+        role = signal_record.get("signal_role")
+        if role == "NOUVELLE_OPPORTUNITÉ":
+            alerts.append("Nouveau signal indépendant")
+        elif role == "RENFORCEMENT_ÉVENTUEL":
+            alerts.append("Signal répété : renforcement éventuel, pas nouvelle entrée")
+    execution = (signal_record or {}).get("execution") or {}
+    if execution.get("status") == "ANNULER_GAP":
+        alerts.append(f"Annuler : gap d’ouverture {execution.get('gap_pct', 0):+.1f} %")
+    elif execution.get("status") == "ANNULER_INVALIDATION":
+        alerts.append("Annuler : niveau d’invalidation déjà cassé à l’ouverture")
+    elif execution.get("status") == "EXÉCUTION_PROGRESSIVE_POSSIBLE":
+        alerts.append(
+            f"Ouverture compatible avec le signal ({execution.get('gap_pct', 0):+.1f} %)"
+        )
     if audit_item and audit_item.get("status") == "REVIEW":
         alerts.append("⚠ Données de marché à vérifier")
     return alerts
@@ -1004,6 +1201,16 @@ audit_items = {
     if item.get("ticker")
 }
 
+signal_state_path = HERE / "history" / "technical_signal_state_latest.json"
+signal_state = {}
+if signal_state_path.exists():
+    try:
+        signal_state = json.loads(
+            signal_state_path.read_text(encoding="utf-8")
+        ).get("items", {})
+    except json.JSONDecodeError:
+        signal_state = {}
+
 fundamental_score_history = {}
 for history_path in sorted(
     (HERE / "history").glob("fundamental_scores_*.json")
@@ -1029,7 +1236,6 @@ if quick_rankings:
     express_checks = {}
     for ranking in ranking_items:
         ticker = ranking.get("ticker", "")
-        verdict = current_verdict(st.session_state.report or "", ticker)
         fundamental_item = fundamental_items.get(ticker) or {}
         valuation_item = valuation_items.get(ticker) or {}
         fundamental_score = fundamental_item.get("score")
@@ -1037,22 +1243,19 @@ if quick_rankings:
         max_exposure = fundamental_item.get("max_exposure_usd", 0)
         valuation_label = valuation_item.get("label", "INDISPONIBLE")
         earnings_days = earnings_days_until(earnings_items.get(ticker, {}))
-        _, positioning_color = positioning_summary(verdict, earnings_days)
         blockers = []
         if fundamental_score is None or fundamental_score < 55 or max_exposure <= 0:
             blockers.append("fondamental inférieur au seuil investissable")
         else:
             investable_rankings.append(ranking)
-        if ranking.get("score", 0) < 65:
-            blockers.append(f"technique {ranking.get('score', 0)}/100, seuil 65")
+        if not technical_signal_ready(ranking):
+            blockers.append(technical_blocker_text(ranking))
         if valuation_label == "TRÈS CHÈRE":
             blockers.append("valorisation très chère")
         elif valuation_label == "INDISPONIBLE":
             blockers.append("valorisation indisponible")
         if earnings_days is not None and earnings_days <= 7:
             blockers.append(f"résultats {earnings_comparison_text(earnings_items.get(ticker))}")
-        if "CAUTION" in verdict or "VERIFY FUNDAMENTALS" in verdict:
-            blockers.append("verdict détaillé de prudence")
         express_checks[ticker] = {
             "blockers": blockers,
             "fundamental_score": fundamental_score,
@@ -1061,8 +1264,8 @@ if quick_rankings:
             "valuation_label": valuation_label,
             "earnings": earnings_comparison_text(earnings_items.get(ticker)),
             "earnings_days": earnings_days,
-            "verdict": verdict,
-            "positioning_color": positioning_color,
+            "trend_regime": ranking.get("trend_regime"),
+            "phase": ranking.get("phase"),
         }
         if not blockers:
             actionable_rankings.append(ranking)
@@ -1101,15 +1304,24 @@ if quick_rankings:
     express_title = "AUCUNE CONFIGURATION SUFFISAMMENT FAVORABLE AUJOURD’HUI"
     express_style = "warning"
     if has_clear_opportunity:
-        express_title = "OPPORTUNITÉ D’ENTRÉE À ÉTUDIER AUJOURD’HUI"
+        focus_setup = actionable_rankings[0].get("setup_type")
+        if focus_setup == "RETOURNEMENT CONFIRMÉ":
+            express_title = "ENTRÉE PROGRESSIVE À ÉTUDIER APRÈS RETOURNEMENT"
+        elif focus_setup == "PULLBACK CONFIRMÉ":
+            express_title = "ENTRÉE PROGRESSIVE À ÉTUDIER APRÈS PULLBACK"
+        elif focus_setup == "STABILISATION CONFIRMÉE":
+            express_title = "ENTRÉE PROGRESSIVE À ÉTUDIER APRÈS STABILISATION"
+        else:
+            express_title = "OPPORTUNITÉ D’ENTRÉE À ÉTUDIER AUJOURD’HUI"
         express_style = "success"
     elif focus_ranking:
         focus_preview = express_checks.get(focus_ranking.get("ticker", ""), {})
         preview_fundamental = focus_preview.get("fundamental_score")
         preview_max = focus_preview.get("max_exposure", 0)
         preview_valuation = focus_preview.get("valuation_label", "INDISPONIBLE")
-        preview_verdict = focus_preview.get("verdict", "")
         preview_technical = focus_ranking.get("score", 0)
+        preview_trigger = has_confirmed_trigger(focus_ranking)
+        preview_technical_pass = technical_signal_ready(focus_ranking)
         preview_earnings_days = focus_preview.get("earnings_days")
         preview_fundamental_pass = (
             preview_fundamental is not None
@@ -1120,13 +1332,9 @@ if quick_rankings:
             "TRÈS CHÈRE",
             "INDISPONIBLE",
         )
-        preview_prudence = (
-            "CAUTION" in preview_verdict
-            or "VERIFY FUNDAMENTALS" in preview_verdict
-        )
-        if preview_fundamental_pass and preview_valuation_pass and not preview_prudence:
+        if preview_fundamental_pass and preview_valuation_pass:
             if (
-                preview_technical >= 65
+                preview_technical_pass
                 and preview_earnings_days is not None
                 and preview_earnings_days <= 7
             ):
@@ -1138,9 +1346,13 @@ if quick_rankings:
                         "SETUP FAVORABLE — ATTENDRE LES RÉSULTATS "
                         f"DANS {preview_earnings_days} {day_label}"
                     )
-            elif preview_technical < 65:
+            elif not preview_technical_pass and preview_technical < 65:
                 express_title = (
                     "DOSSIER FAVORABLE — ATTENDRE UN MEILLEUR SETUP TECHNIQUE"
+                )
+            elif not preview_technical_pass or not preview_trigger:
+                express_title = (
+                    "CONTEXTE FAVORABLE — DÉCLENCHEUR TECHNIQUE MANQUANT"
                 )
             elif preview_earnings_days is None:
                 express_title = (
@@ -1179,7 +1391,7 @@ if quick_rankings:
             max_exposure = focus_check.get("max_exposure", 0)
             valuation_label = focus_check.get("valuation_label", "INDISPONIBLE")
             earnings_days = focus_check.get("earnings_days")
-            technical_pass = technical_score >= 65
+            technical_pass = technical_signal_ready(focus_ranking)
             fundamental_pass = (
                 fundamental_score is not None
                 and fundamental_score >= 55
@@ -1198,7 +1410,7 @@ if quick_rankings:
                     (
                         f"OK · {focus_ranking.get('setup_type', 'SETUP')}"
                         if technical_pass
-                        else "FREIN · seuil 65"
+                        else f"FREIN · {technical_blocker_text(focus_ranking)}"
                     ),
                     technical_pass,
                 ),
@@ -1242,14 +1454,24 @@ if quick_rankings:
                 unsafe_allow_html=True,
             )
             if has_clear_opportunity:
-                st.success("À ÉTUDIER POUR ACHAT — tous les critères sont validés")
+                if focus_ranking.get("setup_type") in (
+                    "RETOURNEMENT CONFIRMÉ",
+                    "PULLBACK CONFIRMÉ",
+                ):
+                    st.success(
+                        "ENTRÉE PROGRESSIVE À ÉTUDIER — reprise confirmée, "
+                        "sans attendre le breakout · annuler si l’ouverture "
+                        "dépasse le cours du signal de plus de 2 %"
+                    )
+                else:
+                    st.success(
+                        "À ÉTUDIER POUR ACHAT — critères validés · annuler si "
+                        "l’ouverture dépasse le cours du signal de plus de 2 %"
+                    )
             else:
                 reasons = []
                 if not technical_pass:
-                    reasons.append(
-                        "le score technique reste sous le seuil d’entrée "
-                        f"({technical_score}/100 contre 65)"
-                    )
+                    reasons.append(technical_blocker_text(focus_ranking))
                 if not fundamental_pass:
                     reasons.append(
                         "le score fondamental ne permet pas encore une position"
@@ -1267,12 +1489,6 @@ if quick_rankings:
                         reasons.append(
                             f"les résultats seront publiés dans {earnings_days} jours"
                         )
-                focus_verdict = focus_check.get("verdict", "")
-                if (
-                    "CAUTION" in focus_verdict
-                    or "VERIFY FUNDAMENTALS" in focus_verdict
-                ):
-                    reasons.append("le verdict détaillé appelle encore à la prudence")
                 st.info(
                     "Pourquoi attendre : "
                     + "; ".join(reasons[:3])
@@ -1295,13 +1511,26 @@ if quick_rankings:
             st.caption(
                 "Score sur 100 : tendance et higher low 25, emplacement du prix 25, "
                 "déclencheur d’entrée 20, volume adapté au setup 15 et RSI 15. "
-                "Le déclencheur retient le meilleur chemin entre Higher Low et Breakout, "
-                "sans additionner les deux. Le volume est interprété différemment : "
-                "contraction pendant un repli ou expansion lors d’un breakout. "
+                "Le déclencheur retient le meilleur chemin entre Higher Low confirmé, breakout, "
+                "retournement haussier et pullback favorable, sans les additionner. "
+                "Un Higher Low exige un creux au moins 2 % plus haut, puis une hausse "
+                "d’au moins 1,5 %, le dépassement du plus haut de la séance précédente "
+                "et une clôture dans les 35 % supérieurs de la bougie. "
+                "Un pullback favorable exige une tendance longue haussière, un recul "
+                "contrôlé vers la SMA200, un RSI bas et un volume vendeur en contraction. "
+                "Il ne devient exploitable qu’après une reprise du prix. Un retournement doit "
+                "tenir au moins une séance avant de devenir exploitable. Un breakout "
+                "sous le volume moyen reste non confirmé. Le volume est interprété "
+                "différemment : contraction pendant un repli ou expansion lors d’un "
+                "breakout/retournement. Après un choc baissier d’au moins 5 % sur "
+                "volume exceptionnel, le point bas doit tenir deux séances, les clôtures "
+                "doivent remonter et le volume doit nettement se contracter. "
                 "Le prix nominal de l’action n’est pas récompensé. Les dossiers "
                 "doivent avoir un fondamental d’au moins 55/100, un score technique "
-                "d’au moins 65/100, une valorisation disponible et non TRÈS CHÈRE, "
-                "aucun résultat dans les 7 jours et aucun verdict de prudence. Ces critères "
+                "d’au moins 65/100 avec Higher Low/breakout confirmé, ou 60/100 "
+                "après un retournement ou pullback confirmé, une valorisation disponible et non "
+                "TRÈS CHÈRE, et aucun résultat dans les 7 jours. "
+                "Ces critères "
                 "restent séparés et ne sont pas mélangés dans un score global. Tri de recherche, "
                 "pas une recommandation ni un ordre d’achat."
             )
@@ -1474,7 +1703,8 @@ if technical_items or fundamental_items:
             else ""
         )
         technical_text = (
-            f"{technical_score} — {technical_setup_label(technical_score)}"
+            f"{technical_score} — "
+            f"{technical_setup_label(technical_score, setup_type)}"
             f"{setup_suffix}"
             if technical_score is not None
             else "INDISPONIBLE"
@@ -1495,10 +1725,10 @@ if technical_items or fundamental_items:
             else "INDISPONIBLE"
         )
         action_text, action_is_positive = comparison_action_label(
-            ticker,
             technical_item,
+            fundamental_item,
+            valuation_item,
             earnings_item,
-            st.session_state.report,
         )
         results_text = earnings_comparison_text(earnings_item)
         results_days = earnings_days_until(earnings_item or {})
@@ -1506,7 +1736,12 @@ if technical_items or fundamental_items:
             comparison_cell(ticker),
             comparison_cell(
                 technical_text,
-                "positive" if technical_score is not None and technical_score >= 65 else "",
+                (
+                    "positive"
+                    if technical_score is not None
+                    and technical_signal_ready(technical_item)
+                    else ""
+                ),
             ),
             comparison_cell(evolution_text, "positive" if rapid_improvement else ""),
             comparison_cell(
@@ -1658,8 +1893,14 @@ if st.session_state.report:
             valuation_item = valuation_items.get(ticker)
             technical_item = technical_items.get(ticker)
             audit_item = audit_items.get(ticker)
+            signal_record = signal_state.get(ticker)
             days_until = earnings_days_until(earnings_item or {})
-            action, action_style = positioning_summary(view, days_until)
+            action, action_style = structured_positioning(
+                technical_item,
+                fundamental_item,
+                valuation_item,
+                days_until,
+            )
 
             title_column, price_column = st.columns([4, 1])
             with title_column:
@@ -1676,7 +1917,10 @@ if st.session_state.report:
             technical_score = (
                 technical_item.get("score") if technical_item else None
             )
-            timing = technical_setup_label(technical_score)
+            timing = technical_setup_label(
+                technical_score,
+                (technical_item or {}).get("setup_type"),
+            )
             event_risk, event_detail = event_risk_summary(days_until)
             quality_column, valuation_column, timing_column, event_column = st.columns(
                 [1.05, 0.9, 1.2, 0.9]
@@ -1727,10 +1971,32 @@ if st.session_state.report:
                     setup_type = (technical_item or {}).get("setup_type")
                     if setup_type and setup_type != "AUCUN":
                         st.caption(f"Type de setup : {setup_type}")
+                    invalidation = (technical_item or {}).get("invalidation")
+                    if invalidation:
+                        st.caption(
+                            f"Invalidation : {invalidation.get('level'):.2f} "
+                            f"({invalidation.get('distance_pct'):+.1f} %) · "
+                            f"{invalidation.get('rule')}"
+                        )
+                    trend = (technical_item or {}).get(
+                        "trend_regime", "INDISPONIBLE"
+                    )
+                    phase = (technical_item or {}).get("phase", "INDISPONIBLE")
+                    st.caption(f"Tendance de fond : {trend} · Phase : {phase}")
+                    metrics = (technical_item or {}).get("metrics", {})
+                    sma50 = metrics.get("sma50")
+                    vs_sma50 = metrics.get("vs_sma50_pct")
+                    if sma50 is not None and vs_sma50 is not None:
+                        st.caption(
+                            f"Support dynamique SMA50 : {sma50:.2f} · "
+                            f"cours {vs_sma50:+.1f} % vs SMA50"
+                        )
                     st.caption(
                         f"RSI {rsi14} · "
-                        f"Support {level_distance(fields.get('Support'), 'support')} · "
-                        f"Résistance {level_distance(fields.get('Resistance'), 'resistance')}"
+                        f"Support horizontal "
+                        f"{level_distance(fields.get('Support'), 'support')} · "
+                        f"Résistance "
+                        f"{level_distance(fields.get('Resistance'), 'resistance')}"
                     )
                     st.caption("Évolution : " + score_evolution_text(technical_item))
             with event_column:
@@ -1745,12 +2011,15 @@ if st.session_state.report:
                 days_until,
                 technical_item,
                 audit_item,
+                signal_record,
             )
             if alerts:
                 st.warning(" · ".join(alerts))
 
-            why = concise_explanation(fr(fr(fields.get("Pourquoi", "N/A"))))
-            st.write("**Lecture actuelle :**", why)
+            st.write(
+                "**Lecture actuelle :**",
+                structured_technical_reading(technical_item),
+            )
 
             with st.expander("Analyse détaillée"):
                 st.write("**Verdict du modèle :**", fr(fr(view)))
