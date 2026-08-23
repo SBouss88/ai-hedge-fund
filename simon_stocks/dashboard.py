@@ -314,6 +314,19 @@ def technical_setup_label(score, setup_type=None):
     return "WAIT"
 
 
+POSITIVE_VALUATIONS = {"TRÈS ATTRACTIVE", "ATTRACTIVE"}
+CAUTION_VALUATIONS = {"PRIME MODÉRÉE", "CHÈRE"}
+BLOCKING_VALUATIONS = {"PRIME ÉLEVÉE", "TRÈS CHÈRE", "INDISPONIBLE"}
+
+
+def valuation_is_positive(label):
+    return label in POSITIVE_VALUATIONS
+
+
+def valuation_is_blocking(label):
+    return label in BLOCKING_VALUATIONS
+
+
 def structured_positioning(technical_item, fundamental_item, valuation_item, days):
     fundamental_score = (fundamental_item or {}).get("score")
     max_exposure = (fundamental_item or {}).get("max_exposure_usd", 0)
@@ -323,7 +336,7 @@ def structured_positioning(technical_item, fundamental_item, valuation_item, day
 
     if fundamental_score is None or fundamental_score < 55 or max_exposure <= 0:
         return "SURVEILLANCE UNIQUEMENT — RISQUE FONDAMENTAL", "orange"
-    if valuation_label in ("TRÈS CHÈRE", "INDISPONIBLE"):
+    if valuation_is_blocking(valuation_label):
         return "ATTENDRE — VALORISATION NON FAVORABLE", "orange"
     if days is not None and days <= 7:
         return "ATTENDRE LES RÉSULTATS", "orange"
@@ -383,13 +396,53 @@ def valuation_metrics_text(item):
     forward_pe = metrics.get("forward_pe")
     price_to_sales = metrics.get("price_to_sales")
     enterprise_to_revenue = metrics.get("enterprise_to_revenue")
+    historical_pe = metrics.get("historical_pe_median")
+    peer_median = metrics.get("peer_median")
     if item.get("method") == "PROFITABLE" and forward_pe is not None and forward_pe > 0:
         parts.append(f"P/E forward {forward_pe:.1f}x")
     if item.get("method") != "PROFITABLE" and price_to_sales is not None:
         parts.append(f"P/S {price_to_sales:.1f}x")
     if item.get("method") != "PROFITABLE" and enterprise_to_revenue is not None:
         parts.append(f"EV/Sales {enterprise_to_revenue:.1f}x")
+    if item.get("method") == "PROFITABLE" and historical_pe is not None:
+        parts.append(f"P/E historique médian {historical_pe:.1f}x")
+    if peer_median is not None:
+        multiple_name = "P/E pairs" if item.get("method") == "PROFITABLE" else "P/S pairs"
+        parts.append(f"{multiple_name} {peer_median:.1f}x")
     return " · ".join(parts) or "Données insuffisantes"
+
+
+def valuation_transparency_text(item):
+    if not item:
+        return "Méthodologie indisponible"
+    score = item.get("score")
+    coverage = item.get("coverage_pct")
+    confidence = item.get("confidence", "LOW")
+    confidence_label = {
+        "HIGH": "élevée",
+        "MEDIUM": "moyenne",
+        "LOW": "faible",
+    }.get(confidence, str(confidence).lower())
+    parts = [
+        f"Score {score}/100" if score is not None else "Score indisponible",
+        f"couverture {coverage}%" if coverage is not None else "couverture inconnue",
+        f"confiance {confidence_label}",
+    ]
+    components = item.get("components", {})
+    component_labels = {
+        "own_history": "historique propre",
+        "peers": "pairs",
+        "growth_adjusted": "croissance ajustée",
+        "cash_flow": "cash-flow",
+    }
+    available = [
+        f"{component_labels.get(name, name)} {component.get('score')}/100"
+        for name, component in components.items()
+        if component.get("available") and component.get("score") is not None
+    ]
+    if available:
+        parts.append(" · ".join(available))
+    return " — ".join(parts)
 
 
 def decimal_fr(value, digits=2):
@@ -885,6 +938,10 @@ st.markdown(
         color: #b45309;
         font-weight: 700;
     }
+    .express-check.caution .express-check-value,
+    .express-check.caution .express-check-status {
+        color: #b45309;
+    }
     .st-key-earnings_calendar_panel {
         border: 2px solid rgba(110, 118, 129, 0.48) !important;
         border-radius: 0.8rem !important;
@@ -1250,10 +1307,10 @@ if quick_rankings:
             investable_rankings.append(ranking)
         if not technical_signal_ready(ranking):
             blockers.append(technical_blocker_text(ranking))
-        if valuation_label == "TRÈS CHÈRE":
-            blockers.append("valorisation très chère")
-        elif valuation_label == "INDISPONIBLE":
+        if valuation_label == "INDISPONIBLE":
             blockers.append("valorisation indisponible")
+        elif valuation_is_blocking(valuation_label):
+            blockers.append("prime de valorisation élevée")
         if earnings_days is not None and earnings_days <= 7:
             blockers.append(f"résultats {earnings_comparison_text(earnings_items.get(ticker))}")
         express_checks[ticker] = {
@@ -1313,7 +1370,16 @@ if quick_rankings:
             express_title = "ENTRÉE PROGRESSIVE À ÉTUDIER APRÈS STABILISATION"
         else:
             express_title = "OPPORTUNITÉ D’ENTRÉE À ÉTUDIER AUJOURD’HUI"
-        express_style = "success"
+        actionable_valuation = express_checks.get(
+            actionable_rankings[0].get("ticker", ""), {}
+        ).get("valuation_label")
+        if actionable_valuation in CAUTION_VALUATIONS:
+            express_title = (
+                "SETUP TECHNIQUE VALIDÉ — PRIME DE VALORISATION MODÉRÉE"
+            )
+            express_style = "warning"
+        else:
+            express_style = "success"
     elif focus_ranking:
         focus_preview = express_checks.get(focus_ranking.get("ticker", ""), {})
         preview_fundamental = focus_preview.get("fundamental_score")
@@ -1328,12 +1394,17 @@ if quick_rankings:
             and preview_fundamental >= 55
             and preview_max > 0
         )
-        preview_valuation_pass = preview_valuation not in (
-            "TRÈS CHÈRE",
-            "INDISPONIBLE",
-        )
+        preview_valuation_pass = not valuation_is_blocking(preview_valuation)
         if preview_fundamental_pass and preview_valuation_pass:
             if (
+                preview_valuation in CAUTION_VALUATIONS
+                and (not preview_technical_pass or not preview_trigger)
+            ):
+                express_title = (
+                    "ENTREPRISE SOLIDE — PRIME MODÉRÉE — "
+                    "DÉCLENCHEUR TECHNIQUE MANQUANT"
+                )
+            elif (
                 preview_technical_pass
                 and preview_earnings_days is not None
                 and preview_earnings_days <= 7
@@ -1397,11 +1468,33 @@ if quick_rankings:
                 and fundamental_score >= 55
                 and max_exposure > 0
             )
-            valuation_pass = valuation_label not in (
-                "TRÈS CHÈRE",
-                "INDISPONIBLE",
-            )
+            valuation_pass = not valuation_is_blocking(valuation_label)
             earnings_pass = earnings_days is not None and earnings_days > 7
+
+            if valuation_is_positive(valuation_label):
+                valuation_status = "FAVORABLE"
+                valuation_css_class = "pass"
+            elif valuation_label == "RAISONNABLE":
+                valuation_status = "NEUTRE"
+                valuation_css_class = "neutral"
+            elif valuation_label in CAUTION_VALUATIONS:
+                valuation_status = (
+                    "PRUDENCE"
+                )
+                valuation_css_class = "caution"
+            else:
+                valuation_status = "FREIN"
+                valuation_css_class = "block"
+
+            if earnings_days is None:
+                earnings_status = "DATE À VÉRIFIER"
+                earnings_css_class = "block"
+            elif earnings_days <= 7:
+                earnings_status = "VIGILANCE · publication proche"
+                earnings_css_class = "block"
+            else:
+                earnings_status = "ÉCHÉANCE À VENIR"
+                earnings_css_class = "neutral"
 
             checks = (
                 (
@@ -1412,7 +1505,7 @@ if quick_rankings:
                         if technical_pass
                         else f"FREIN · {technical_blocker_text(focus_ranking)}"
                     ),
-                    technical_pass,
+                    "pass" if technical_pass else "block",
                 ),
                 (
                     "Fondamental / Max",
@@ -1422,24 +1515,23 @@ if quick_rankings:
                         if fundamental_pass
                         else "FREIN · non investissable"
                     ),
-                    fundamental_pass,
+                    "pass" if fundamental_pass else "block",
                 ),
                 (
                     "Valorisation",
                     valuation_label,
-                    "OK" if valuation_pass else "FREIN",
-                    valuation_pass,
+                    valuation_status,
+                    valuation_css_class,
                 ),
                 (
                     "Résultats",
                     focus_check.get("earnings", "date indisponible"),
-                    "OK" if earnings_pass else "VIGILANCE · publication proche",
-                    earnings_pass,
+                    earnings_status,
+                    earnings_css_class,
                 ),
             )
             checks_html = []
-            for label, value, status, passed in checks:
-                css_class = "pass" if passed else "block"
+            for label, value, status, css_class in checks:
                 checks_html.append(
                     f'<div class="express-check {css_class}">'
                     f'<div class="express-check-label">{html.escape(label)}</div>'
@@ -1454,7 +1546,12 @@ if quick_rankings:
                 unsafe_allow_html=True,
             )
             if has_clear_opportunity:
-                if focus_ranking.get("setup_type") in (
+                if valuation_label in CAUTION_VALUATIONS:
+                    st.warning(
+                        "SETUP TECHNIQUE VALIDÉ — entrée éventuelle à étudier avec "
+                        "prudence car la prime de valorisation reste modérée"
+                    )
+                elif focus_ranking.get("setup_type") in (
                     "RETOURNEMENT CONFIRMÉ",
                     "PULLBACK CONFIRMÉ",
                 ):
@@ -1529,7 +1626,7 @@ if quick_rankings:
                 "doivent avoir un fondamental d’au moins 55/100, un score technique "
                 "d’au moins 65/100 avec Higher Low/breakout confirmé, ou 60/100 "
                 "après un retournement ou pullback confirmé, une valorisation disponible et non "
-                "TRÈS CHÈRE, et aucun résultat dans les 7 jours. "
+                "PRIME ÉLEVÉE, et aucun résultat dans les 7 jours. "
                 "Ces critères "
                 "restent séparés et ne sont pas mélangés dans un score global. Tri de recherche, "
                 "pas une recommandation ni un ordre d’achat."
@@ -1746,7 +1843,7 @@ if technical_items or fundamental_items:
             comparison_cell(evolution_text, "positive" if rapid_improvement else ""),
             comparison_cell(
                 valuation_label,
-                "positive" if valuation_label in ("TRÈS ATTRACTIVE", "ATTRACTIVE") else "",
+                "positive" if valuation_is_positive(valuation_label) else "",
             ),
             fundamental_max_cell(
                 fundamental_text,
@@ -1961,6 +2058,7 @@ if st.session_state.report:
                     )
                     st.caption(valuation_metrics_text(valuation_item))
                     st.caption(valuation_audit_text(valuation_item))
+                    st.caption(valuation_transparency_text(valuation_item))
             with timing_column:
                 with st.container(border=True):
                     st.caption("TIMING TECHNIQUE")

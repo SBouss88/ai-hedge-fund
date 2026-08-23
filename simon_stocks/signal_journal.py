@@ -75,6 +75,7 @@ def eligibility(technical, fundamental, valuation, earnings):
         "UNAVAILABLE",
         "INDISPONIBLE",
         "VERY EXPENSIVE",
+        "PRIME ÉLEVÉE",
         "TRÈS CHÈRE",
     }:
         blockers.append("VALORISATION_NON_FAVORABLE")
