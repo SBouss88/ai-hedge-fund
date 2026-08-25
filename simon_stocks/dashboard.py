@@ -749,6 +749,137 @@ def news_date_label(value):
     stale = " · ⚠️ actualité ancienne" if age > 14 else ""
     return f"Publié le {date_text} · {freshness}{stale}"
 
+
+def compact_news_date(value):
+    if not value:
+        return "Date inconnue"
+    try:
+        published = date.fromisoformat(value)
+    except (TypeError, ValueError):
+        return "Date inconnue"
+    return f"{published.day} {FRENCH_MONTHS[published.month - 1]}"
+
+
+def render_market_news_section(market_news, selected_universe):
+    if not market_news:
+        return
+
+    section_heading("Actualités majeures de l’IA")
+    source_status = market_news.get("source_status", {})
+    with st.expander("Disponibilité des sources"):
+        st.caption(
+            " · ".join(
+                f"{source}={fr(status)}"
+                for source, status in source_status.items()
+            )
+        )
+
+    market_items = [
+        item
+        for item in market_news.get("items", [])
+        if (
+            bool(set(item.get("related_tickers", [])) & AI_BIOTECH_TICKERS)
+            == (selected_universe == "IA-biotech")
+        )
+    ]
+    if not market_items:
+        st.info("Aucune actualité suffisamment importante n’a été retenue.")
+        st.caption(
+            "Lecture de recherche uniquement : une « position à étudier » "
+            "n’est jamais un ordre d’achat."
+        )
+        return
+
+    positioning_labels = {
+        "POSITION TO STUDY": "CONFIGURATION FAVORABLE — OPPORTUNITÉ À ÉTUDIER",
+        "WAIT FOR CONFIRMATION": "ATTENDRE UNE CONFIRMATION",
+        "DO NOT POSITION ON THIS NEWS ALONE": "NE PAS SE POSITIONNER SUR CETTE SEULE NEWS",
+    }
+    positioning_classes = {
+        "POSITION TO STUDY": "positive",
+        "WAIT FOR CONFIRMATION": "caution",
+        "DO NOT POSITION ON THIS NEWS ALONE": "negative",
+    }
+
+    for item in market_items:
+        companies = item.get("companies", [])
+        company_text = ", ".join(companies) if companies else "Écosystème IA"
+        impact = NEWS_IMPACT_LABELS.get(item.get("impact"), "incertain")
+        event = item.get("event", "Actualité IA")
+        compact_label = (
+            f"{compact_news_date(item.get('published_at'))} · {company_text} · "
+            f"{event} — impact {impact}"
+        )
+        with st.expander(compact_label):
+            metadata = news_date_label(item.get("published_at"))
+            metadata += (
+                f" · confiance {fr(item.get('confidence', 'LOW')).lower()}"
+            )
+            st.caption(metadata)
+
+            positioning = item.get("positioning", "WAIT FOR CONFIRMATION")
+            positioning_text = positioning_labels.get(positioning, positioning)
+            positioning_class = positioning_classes.get(positioning, "caution")
+            st.markdown(
+                '<div class="news-decision '
+                + positioning_class
+                + '"><strong>Conclusion :</strong> '
+                + html.escape(positioning_text)
+                + "</div>",
+                unsafe_allow_html=True,
+            )
+
+            positioning_reason = item.get("positioning_reason", "")
+            if positioning_reason:
+                st.write("**Pourquoi cette décision :**", positioning_reason)
+            st.write(
+                "**Pourquoi c’est important :**",
+                item.get("why_it_matters", "N/A"),
+            )
+            st.caption(
+                "Confirmation nécessaire : "
+                + item.get("confirmation_needed", "Analyse complémentaire")
+            )
+            st.caption(
+                "Sources utilisées : " + ", ".join(item.get("sources", []))
+            )
+
+            contexts = item.get("market_context", [])
+            if contexts:
+                st.write("**Contexte marché :**")
+                for context in contexts[:3]:
+                    ticker = context.get("ticker", "—")
+                    rsi14 = context.get("rsi14")
+                    forward_pe = context.get("forward_pe")
+                    context_parts = [
+                        ticker,
+                        f"RSI {rsi14:.1f}" if rsi14 is not None else "RSI N/A",
+                        context.get("technical_regime", "N/A"),
+                    ]
+                    if forward_pe is not None:
+                        context_parts.append(f"P/E forward {forward_pe:.1f}x")
+                    if context.get("price_to_sales") is not None:
+                        context_parts.append(
+                            f"P/S {context['price_to_sales']:.1f}x"
+                        )
+                    st.caption(" · ".join(context_parts))
+
+            links = item.get("links", [])
+            if links:
+                link_columns = st.columns(min(len(links), 3))
+                for index, link in enumerate(links[:3]):
+                    with link_columns[index]:
+                        st.link_button(
+                            "Lire la source",
+                            link.get("url", ""),
+                            use_container_width=True,
+                        )
+
+    st.caption(
+        "Lecture de recherche uniquement : une « position à étudier » "
+        "n’est jamais un ordre d’achat."
+    )
+
 def entry_change_summary(line, report):
     raw = line[2:] if line.startswith("- ") else line
     ticker = raw.split(":", 1)[0].strip()
@@ -880,10 +1011,10 @@ st.markdown(
     }
     .express-decision {
         border: 1px solid;
-        border-left-width: 8px;
-        border-radius: 0.75rem;
-        margin-bottom: 1rem;
-        padding: 1.15rem 1.25rem;
+        border-left-width: 6px;
+        border-radius: 0.65rem;
+        margin-bottom: 0.65rem;
+        padding: 0.8rem 1rem;
     }
     .express-decision.warning {
         background: #fff8db;
@@ -896,10 +1027,10 @@ st.markdown(
         color: #14532d;
     }
     .express-decision-title {
-        font-size: 1.2rem;
+        font-size: 1.08rem;
         font-weight: 850;
         letter-spacing: 0.015em;
-        line-height: 1.35;
+        line-height: 1.3;
     }
     .express-decision-subtitle {
         font-size: 0.92rem;
@@ -907,16 +1038,21 @@ st.markdown(
         margin-top: 0.4rem;
     }
     .express-checks {
-        display: grid;
-        gap: 0.65rem;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        margin: 0.75rem 0 1rem;
+        align-items: stretch;
+        border-bottom: 1px solid rgba(110, 118, 129, 0.28);
+        border-top: 1px solid rgba(110, 118, 129, 0.28);
+        display: flex;
+        margin: 0.35rem 0 0.65rem;
+        overflow-x: auto;
     }
     .express-check {
-        border: 1px solid rgba(110, 118, 129, 0.38);
-        border-radius: 0.65rem;
+        border-right: 1px solid rgba(110, 118, 129, 0.28);
+        flex: 1 0 12rem;
         min-width: 0;
-        padding: 0.72rem 0.8rem;
+        padding: 0.55rem 0.75rem;
+    }
+    .express-check:last-child {
+        border-right: 0;
     }
     .express-check-label {
         color: #8b9099;
@@ -936,6 +1072,13 @@ st.markdown(
         font-size: 0.74rem;
         margin-top: 0.18rem;
     }
+    .express-action {
+        border-left: 3px solid #3b82f6;
+        color: inherit;
+        font-size: 0.9rem;
+        margin: 0.2rem 0 0.55rem;
+        padding: 0.35rem 0.65rem;
+    }
     .express-check.pass .express-check-value,
     .express-check.pass .express-check-status {
         color: #15803d;
@@ -949,10 +1092,6 @@ st.markdown(
         color: #b45309;
     }
     .st-key-earnings_calendar_panel {
-        border: 2px solid rgba(110, 118, 129, 0.48) !important;
-        border-radius: 0.8rem !important;
-    }
-    .st-key-universe_filter_panel {
         border: 2px solid rgba(110, 118, 129, 0.48) !important;
         border-radius: 0.8rem !important;
     }
@@ -987,7 +1126,7 @@ st.markdown(
     .comparison-table th,
     .comparison-table td {
         border-bottom: 1px solid rgba(110, 118, 129, 0.25);
-        padding: 0.65rem 0.55rem;
+        padding: 0.48rem 0.5rem;
         text-align: left;
         vertical-align: middle;
         white-space: nowrap;
@@ -1008,6 +1147,24 @@ st.markdown(
         border: 3px solid rgba(90, 98, 108, 0.62) !important;
         border-radius: 0.8rem !important;
     }
+    .news-decision {
+        border-left: 3px solid;
+        font-size: 0.88rem;
+        margin: 0.35rem 0 0.75rem;
+        padding: 0.35rem 0.65rem;
+    }
+    .news-decision.positive {
+        border-color: #16a34a;
+        color: #15803d;
+    }
+    .news-decision.caution {
+        border-color: #d97706;
+        color: #b45309;
+    }
+    .news-decision.negative {
+        border-color: #dc2626;
+        color: #b91c1c;
+    }
     .section-heading {
         text-decoration-line: underline;
         text-decoration-color: #000000;
@@ -1015,7 +1172,7 @@ st.markdown(
         text-underline-offset: 7px;
     }
     .section-gap {
-        height: 1.25rem;
+        height: 0.75rem;
     }
     </style>
     """,
@@ -1066,27 +1223,6 @@ next_earnings = sorted(
     key=lambda row: row[2],
 )[:4]
 
-header_column, calendar_column = st.columns([4, 1.35])
-with header_column:
-    section_heading("Simon AI — Suivi des actions", level=1)
-    st.caption("Tableau de bord d’aide à l’analyse boursière par IA")
-with calendar_column:
-    with st.container(border=True, key="earnings_calendar_panel"):
-        section_heading("Prochaines échéances", level=4)
-        if next_earnings:
-            for ticker, item, days_until in next_earnings:
-                st.markdown(
-                    '<div class="earnings-row">'
-                    f'<span class="earnings-main">{earnings_risk_icon(days_until)} '
-                    f'{html.escape(ticker)} · J‑{days_until}</span>'
-                    f'<span class="earnings-date">{html.escape(earnings_timezone_label(item, include_times=False, compact=True))}</span>'
-                    "</div>",
-                    unsafe_allow_html=True,
-                )
-        else:
-            st.caption("Aucune date disponible")
-        st.caption("Dates indicatives")
-
 history_dir = HERE / "history"
 reports = sorted(history_dir.glob("report_*.txt"), reverse=True)
 if "report" not in st.session_state:
@@ -1106,29 +1242,49 @@ if True:
     )
     st.session_state.changes = comparison.stdout.strip()
 
-analysis_button_column, fundamental_button_column, universe_column = st.columns(
-    [1, 1, 0.684]
-)
-with analysis_button_column:
-    update_analysis = st.button(
-        "Mettre à jour l’analyse du marché",
-        type="primary",
-        use_container_width=True,
+header_column, calendar_column = st.columns([4, 1.35])
+with header_column:
+    section_heading("Simon AI — Suivi des actions", level=1)
+    st.caption("Tableau de bord d’aide à l’analyse boursière par IA")
+    analysis_button_column, fundamental_button_column = st.columns(
+        [1.05, 1],
+        vertical_alignment="bottom",
     )
-with fundamental_button_column:
-    update_fundamentals = st.button(
-        "Réévaluer le score fondamental",
-        use_container_width=True,
-    )
-with universe_column:
-    with st.container(border=True, key="universe_filter_panel"):
-        st.caption("VUE AFFICHÉE")
-        selected_universe = st.segmented_control(
-            "Univers",
-            options=("IA", "IA-biotech"),
-            key="selected_universe",
-            label_visibility="collapsed",
-        ) or "IA"
+    with analysis_button_column:
+        update_analysis = st.button(
+            "Mettre à jour le marché",
+            type="primary",
+            use_container_width=True,
+        )
+    with fundamental_button_column:
+        update_fundamentals = st.button(
+            "Réévaluer les fondamentaux",
+            use_container_width=True,
+        )
+with calendar_column:
+    with st.container(border=True, key="earnings_calendar_panel"):
+        section_heading("Prochaines échéances", level=4)
+        if next_earnings:
+            for ticker, item, days_until in next_earnings:
+                st.markdown(
+                    '<div class="earnings-row">'
+                    f'<span class="earnings-main">{earnings_risk_icon(days_until)} '
+                    f'{html.escape(ticker)} · J‑{days_until}</span>'
+                    f'<span class="earnings-date">{html.escape(earnings_timezone_label(item, include_times=False, compact=True))}</span>'
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.caption("Aucune date disponible")
+        st.caption("Dates indicatives")
+    selected_universe = st.segmented_control(
+        "Vue affichée",
+        options=("IA", "IA-biotech"),
+        format_func=lambda option: f"Vue {option}",
+        key="selected_universe",
+        label_visibility="collapsed",
+        width="stretch",
+    ) or "IA"
 
 if update_analysis:
     with st.spinner(
@@ -1189,24 +1345,22 @@ if update_fundamentals:
         st.error("Erreur pendant la réévaluation fondamentale")
         st.code(result.stderr, language=None)
 
-if st.session_state.analysis_updated_at:
-    st.caption(
-        "Dernière mise à jour de l’analyse du marché : "
-        + french_datetime(st.session_state.analysis_updated_at)
-    )
-else:
-    st.caption("Dernière mise à jour de l’analyse du marché : aucune")
-
 fundamental_generated_at = parsed_datetime(
     (st.session_state.fundamental_scores or {}).get("generated_at")
 )
-if fundamental_generated_at:
-    st.caption(
-        "Dernière réévaluation fondamentale : "
-        + french_datetime(fundamental_generated_at)
-    )
-else:
-    st.caption("Dernière réévaluation fondamentale : aucune")
+market_update_text = (
+    french_datetime(st.session_state.analysis_updated_at)
+    if st.session_state.analysis_updated_at
+    else "aucune"
+)
+fundamental_update_text = (
+    french_datetime(fundamental_generated_at)
+    if fundamental_generated_at
+    else "aucune"
+)
+st.caption(
+    f"Marché : {market_update_text} · Fondamentaux : {fundamental_update_text}"
+)
 
 balance_path = HERE / "history" / "openai_balance_start.txt"
 spent_path = HERE / "history" / "openai_spent.txt"
@@ -1442,10 +1596,18 @@ if quick_rankings:
         elif not preview_fundamental_pass:
             express_title = "SURVEILLANCE UNIQUEMENT — RISQUE FONDAMENTAL TROP ÉLEVÉ"
     if focus_ranking:
-        express_title = f"{focus_ranking.get('ticker', '—')} — {express_title}"
+        focus_ticker = focus_ranking.get("ticker", "—")
+        express_heading = (
+            "Meilleur candidat du jour"
+            if has_clear_opportunity
+            else "Dossier le plus proche des critères"
+        )
+        express_title = f"{focus_ticker} — {express_title}"
+    else:
+        express_heading = "Synthèse du jour"
 
     with st.container(border=True, key="express_summary_panel"):
-        section_heading("Synthèse express")
+        section_heading(express_heading)
         if as_of_text:
             st.caption(as_of_text)
 
@@ -1553,7 +1715,7 @@ if quick_rankings:
             )
             if has_clear_opportunity:
                 if valuation_label in CAUTION_VALUATIONS:
-                    st.warning(
+                    action_text = (
                         "SETUP TECHNIQUE VALIDÉ — entrée éventuelle à étudier avec "
                         "prudence car la valorisation reste un peu exigeante"
                     )
@@ -1561,13 +1723,13 @@ if quick_rankings:
                     "RETOURNEMENT CONFIRMÉ",
                     "PULLBACK CONFIRMÉ",
                 ):
-                    st.success(
+                    action_text = (
                         "ENTRÉE PROGRESSIVE À ÉTUDIER — reprise confirmée, "
                         "sans attendre le breakout · annuler si l’ouverture "
                         "dépasse le cours du signal de plus de 2 %"
                     )
                 else:
-                    st.success(
+                    action_text = (
                         "À ÉTUDIER POUR ACHAT — critères validés · annuler si "
                         "l’ouverture dépasse le cours du signal de plus de 2 %"
                     )
@@ -1592,11 +1754,17 @@ if quick_rankings:
                         reasons.append(
                             f"les résultats seront publiés dans {earnings_days} jours"
                         )
-                st.info(
-                    "Pourquoi attendre : "
+                action_text = (
+                    "Attendre : "
                     + "; ".join(reasons[:3])
                     + "."
                 )
+            st.markdown(
+                '<div class="express-action"><strong>À faire :</strong> '
+                + html.escape(action_text)
+                + "</div>",
+                unsafe_allow_html=True,
+            )
             st.caption(
                 "Fondamental + valorisation = qualité du dossier. "
                 "Technique + résultats = qualité du moment d’entrée."
@@ -1642,128 +1810,13 @@ else:
         section_heading("Synthèse express")
         st.info("La synthèse express sera disponible après la prochaine mise à jour.")
 
-section_gap()
 market_news_path = HERE / "history" / "ai_market_news_latest.json"
+market_news = None
 if market_news_path.exists():
     try:
         market_news = json.loads(market_news_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         market_news = None
-
-    if market_news:
-        section_heading("Actualités majeures de l’IA")
-        source_status = market_news.get("source_status", {})
-        with st.expander("Disponibilité des sources"):
-            st.caption(
-                " · ".join(
-                    f"{source}={fr(status)}"
-                    for source, status in source_status.items()
-                )
-            )
-
-        market_items = [
-            item
-            for item in market_news.get("items", [])
-            if (
-                bool(
-                    set(item.get("related_tickers", []))
-                    & AI_BIOTECH_TICKERS
-                )
-                == (selected_universe == "IA-biotech")
-            )
-        ]
-        if not market_items:
-            st.info("Aucune actualité suffisamment importante n’a été retenue.")
-
-        positioning_labels = {
-            "POSITION TO STUDY": "CONFIGURATION FAVORABLE — OPPORTUNITÉ À ÉTUDIER",
-            "WAIT FOR CONFIRMATION": "ATTENDRE UNE CONFIRMATION",
-            "DO NOT POSITION ON THIS NEWS ALONE": "NE PAS SE POSITIONNER SUR CETTE SEULE NEWS",
-        }
-
-        for item in market_items:
-            with st.container(border=True):
-                companies = item.get("companies", [])
-                st.markdown(f"#### {item.get('event', 'Actualité IA')}")
-                metadata = news_date_label(item.get("published_at"))
-                if companies:
-                    metadata += " · " + ", ".join(companies)
-                metadata += (
-                    " · Impact "
-                    f"{NEWS_IMPACT_LABELS.get(item.get('impact'), 'incertain')} · "
-                    f"confiance {fr(item.get('confidence', 'LOW')).lower()}"
-                )
-                st.caption(metadata)
-
-                positioning = item.get("positioning", "WAIT FOR CONFIRMATION")
-                positioning_text = positioning_labels.get(positioning, positioning)
-                if positioning == "POSITION TO STUDY":
-                    st.success(positioning_text)
-                elif positioning == "DO NOT POSITION ON THIS NEWS ALONE":
-                    st.error(positioning_text)
-                else:
-                    st.warning(positioning_text)
-
-                with st.expander("Voir l’analyse et les sources"):
-                    positioning_reason = item.get("positioning_reason", "")
-                    if positioning_reason:
-                        st.write(
-                            "**Pourquoi cette décision :**",
-                            positioning_reason,
-                        )
-                    st.write(
-                        "**Pourquoi c’est important :**",
-                        item.get("why_it_matters", "N/A"),
-                    )
-                    st.caption(
-                        "Confirmation nécessaire : "
-                        + item.get("confirmation_needed", "Analyse complémentaire")
-                    )
-                    st.caption(
-                        "Sources utilisées : "
-                        + ", ".join(item.get("sources", []))
-                    )
-
-                    contexts = item.get("market_context", [])
-                    if contexts:
-                        st.write("**Contexte marché :**")
-                        for context in contexts[:3]:
-                            ticker = context.get("ticker", "—")
-                            rsi14 = context.get("rsi14")
-                            forward_pe = context.get("forward_pe")
-                            context_parts = [
-                                ticker,
-                                (
-                                    f"RSI {rsi14:.1f}"
-                                    if rsi14 is not None
-                                    else "RSI N/A"
-                                ),
-                                context.get("technical_regime", "N/A"),
-                            ]
-                            if forward_pe is not None:
-                                context_parts.append(
-                                    f"P/E forward {forward_pe:.1f}x"
-                                )
-                            if context.get("price_to_sales") is not None:
-                                context_parts.append(
-                                    f"P/S {context['price_to_sales']:.1f}x"
-                                )
-                            st.caption(" · ".join(context_parts))
-
-                    links = item.get("links", [])
-                    if links:
-                        link_columns = st.columns(min(len(links), 3))
-                        for index, link in enumerate(links[:3]):
-                            with link_columns[index]:
-                                st.link_button(
-                                    "Lire la source",
-                                    link.get("url", ""),
-                                    use_container_width=True,
-                                )
-
-        st.caption(
-            "Lecture de recherche uniquement : une « position à étudier » n’est jamais un ordre d’achat."
-        )
 
 section_gap()
 if technical_items or fundamental_items:
@@ -1903,6 +1956,9 @@ if technical_items or fundamental_items:
                 "Aucun changement significatif depuis la dernière analyse."
             )
     section_gap()
+
+render_market_news_section(market_news, selected_universe)
+section_gap()
 
 if st.session_state.report:
     report = st.session_state.report

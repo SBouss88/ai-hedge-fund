@@ -316,6 +316,13 @@ Pour les deux blocs de risque, un score élevé signifie que le risque est faibl
 maîtrisé. Pénalise explicitement la concentration clients/produits/régions, les alternatives
 internes développées par les clients, la géopolitique, la réglementation, les restrictions
 d'exportation, la supply chain, le capex, la dette et la dilution quand ils sont matériels.
+Ne pénalise pas plusieurs fois le même risque dans différents blocs. Affecte chaque risque
+principalement au critère le plus pertinent, puis évalue les autres critères sur leurs propres
+mérites. Une concentration de clients ne doit par exemple pas réduire mécaniquement à la fois
+la diversification, la résilience concurrentielle et la maîtrise des risques spécifiques.
+Accorde pleinement les points correspondant à un avantage de plateforme durable, un
+écosystème logiciel difficile à reproduire, des coûts de changement élevés et une capacité
+d'exécution démontrée, tout en conservant les risques réellement indépendants.
 
 La solidité financière sur 25 est calculée séparément par des règles quantitatives : ne la
 rescore pas. Appuie-toi d'abord sur les profils et données fournis. Tu peux utiliser des faits
