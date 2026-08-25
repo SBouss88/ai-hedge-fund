@@ -131,7 +131,7 @@ def valuation_label(score):
     if score >= 55:
         return "RAISONNABLE"
     if score >= 40:
-        return "PRIME MODÉRÉE"
+        return "UN PEU EXIGEANTE"
     return "PRIME ÉLEVÉE"
 
 

@@ -28,7 +28,7 @@ def test_new_labels_describe_premium_instead_of_absolute_expensiveness():
     assert valuation_label(90) == "TRÈS ATTRACTIVE"
     assert valuation_label(72) == "ATTRACTIVE"
     assert valuation_label(60) == "RAISONNABLE"
-    assert valuation_label(45) == "PRIME MODÉRÉE"
+    assert valuation_label(45) == "UN PEU EXIGEANTE"
     assert valuation_label(25) == "PRIME ÉLEVÉE"
 
 

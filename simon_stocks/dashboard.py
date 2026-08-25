@@ -15,6 +15,12 @@ FRENCH_MONTHS = (
     "juil.", "août", "sept.", "oct.", "nov.", "déc.",
 )
 AI_BIOTECH_TICKERS = {"SDGR", "RXRX", "ABSI"}
+NEWS_IMPACT_LABELS = {
+    "POSITIVE": "positif",
+    "NEGATIVE": "négatif",
+    "MIXED": "mitigé",
+    "UNCLEAR": "incertain",
+}
 
 
 def stock_section(ticker):
@@ -315,7 +321,7 @@ def technical_setup_label(score, setup_type=None):
 
 
 POSITIVE_VALUATIONS = {"TRÈS ATTRACTIVE", "ATTRACTIVE"}
-CAUTION_VALUATIONS = {"PRIME MODÉRÉE", "CHÈRE"}
+CAUTION_VALUATIONS = {"UN PEU EXIGEANTE", "PRIME MODÉRÉE", "CHÈRE"}
 BLOCKING_VALUATIONS = {"PRIME ÉLEVÉE", "TRÈS CHÈRE", "INDISPONIBLE"}
 
 
@@ -1375,7 +1381,7 @@ if quick_rankings:
         ).get("valuation_label")
         if actionable_valuation in CAUTION_VALUATIONS:
             express_title = (
-                "SETUP TECHNIQUE VALIDÉ — PRIME DE VALORISATION MODÉRÉE"
+                "SETUP TECHNIQUE VALIDÉ — VALORISATION UN PEU EXIGEANTE"
             )
             express_style = "warning"
         else:
@@ -1401,7 +1407,7 @@ if quick_rankings:
                 and (not preview_technical_pass or not preview_trigger)
             ):
                 express_title = (
-                    "ENTREPRISE SOLIDE — PRIME MODÉRÉE — "
+                    "ENTREPRISE SOLIDE — VALORISATION UN PEU EXIGEANTE — "
                     "DÉCLENCHEUR TECHNIQUE MANQUANT"
                 )
             elif (
@@ -1549,7 +1555,7 @@ if quick_rankings:
                 if valuation_label in CAUTION_VALUATIONS:
                     st.warning(
                         "SETUP TECHNIQUE VALIDÉ — entrée éventuelle à étudier avec "
-                        "prudence car la prime de valorisation reste modérée"
+                        "prudence car la valorisation reste un peu exigeante"
                     )
                 elif focus_ranking.get("setup_type") in (
                     "RETOURNEMENT CONFIRMÉ",
@@ -1684,7 +1690,7 @@ if market_news_path.exists():
                     metadata += " · " + ", ".join(companies)
                 metadata += (
                     " · Impact "
-                    f"{fr(item.get('impact', 'UNCLEAR')).lower()} · "
+                    f"{NEWS_IMPACT_LABELS.get(item.get('impact'), 'incertain')} · "
                     f"confiance {fr(item.get('confidence', 'LOW')).lower()}"
                 )
                 st.caption(metadata)

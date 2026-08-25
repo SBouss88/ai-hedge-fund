@@ -305,7 +305,7 @@ def is_recent_news(item, max_age_days=NEWS_MAX_AGE_DAYS):
     published = datetime.fromtimestamp(timestamp, tz=timezone.utc).date()
     today = datetime.now(timezone.utc).date()
     age_days = (today - published).days
-    return 0 <= age_days <= max_age_days
+    return 0 <= age_days < max_age_days
 
 
 def fetch_company_ir_news(ticker, limit=3):
