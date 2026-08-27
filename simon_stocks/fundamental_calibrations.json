@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "calibrations": {
+    "NVDA": {
+      "version": 1,
+      "approved_at": "2026-08-25",
+      "approved_score": 86,
+      "reason": "Meilleure reconnaissance du moat de plateforme et suppression du double comptage des risques de concentration, de concurrence et de supply chain.",
+      "criteria": {
+        "moat": {"score": 24, "reason": "CUDA, les bibliothèques, l’intégration matériel-réseau et les coûts de changement constituent un avantage de plateforme durable et extrêmement difficile à reproduire."},
+        "financial_strength": {"score": 24},
+        "diversification": {"score": 15, "reason": "NVIDIA dispose de plusieurs moteurs de revenus et marchés finaux, malgré une concentration encore importante de la croissance sur les investissements IA des hyperscalers."},
+        "competitive_resilience": {"score": 12, "reason": "L’écosystème logiciel, la cadence d’innovation et l’intégration complète rendent le leadership difficile à attaquer, malgré AMD et les ASIC développés par certains clients."},
+        "specific_risk_resilience": {"score": 11, "reason": "Le bilan et la capacité d’exécution permettent d’absorber une partie des risques liés à TSMC, aux restrictions d’exportation et au cycle du capex IA, qui restent néanmoins matériels."}
+      }
+    },
+    "TSM": {
+      "version": 1,
+      "approved_at": "2026-08-26",
+      "approved_score": 85,
+      "reason": "Restauration de la diversification et de la résilience aux risques spécifiques après suppression du double comptage du risque taïwanais.",
+      "criteria": {
+        "moat": {"score": 24, "reason": "La position de fonderie indépendante, l’avance technologique et les coûts de qualification créent une barrière exceptionnelle, malgré la dépendance aux clients fabless."},
+        "financial_strength": {"score": 24},
+        "diversification": {"score": 16, "reason": "Les procédés servent plusieurs marchés finaux et une base mondiale de clients, tandis que la concentration géographique à Taïwan est comptabilisée séparément dans les risques spécifiques."},
+        "competitive_resilience": {"score": 13, "reason": "L’avance industrielle, le rendement de production et l’écosystème client sont difficiles à reproduire, même si Samsung, Intel et les alternatives internes des clients progressent."},
+        "specific_risk_resilience": {"score": 8, "reason": "Le risque géopolitique taïwanais, les restrictions d’exportation, la supply chain spécialisée et le capex restent matériels, mais la solidité financière et la diversification progressive des capacités apportent une capacité d’absorption."}
+      }
+    }
+  }
+}

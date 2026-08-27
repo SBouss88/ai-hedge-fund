@@ -16,6 +16,7 @@ from external_news import fetch_external_news
 HERE = Path(__file__).resolve().parent
 HISTORY_DIR = HERE / "history"
 LATEST_PATH = HISTORY_DIR / "fundamental_scores_latest.json"
+CALIBRATIONS_PATH = HERE / "fundamental_calibrations.json"
 MODEL = "gpt-5.6-luna"
 
 
@@ -185,6 +186,84 @@ def category_for(score):
     return "WATCHLIST", 0
 
 
+def load_calibrations(path=CALIBRATIONS_PATH):
+    if not path.exists():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        ticker.upper(): calibration
+        for ticker, calibration in payload.get("calibrations", {}).items()
+    }
+
+
+def _has_material_trigger(reasons):
+    return any(reason != "première évaluation" for reason in reasons)
+
+
+def apply_approved_calibration(item, calibration, trigger_reasons=None):
+    """Apply a user-approved score until a genuinely material trigger occurs."""
+    if not calibration:
+        return item
+
+    version = int(calibration.get("version", 1))
+    existing = item.get("calibration", {})
+    if (
+        existing.get("status") == "EXPIRED_ON_MATERIAL_TRIGGER"
+        and int(existing.get("version", 0)) >= version
+    ):
+        return item
+
+    if _has_material_trigger(trigger_reasons or []):
+        result = dict(item)
+        result["calibration"] = {
+            "status": "EXPIRED_ON_MATERIAL_TRIGGER",
+            "version": version,
+            "approved_at": calibration.get("approved_at"),
+            "previous_approved_score": calibration.get("approved_score"),
+            "reason": "Un déclencheur fondamental matériel autorise une nouvelle note.",
+            "trigger_reasons": list(trigger_reasons or []),
+        }
+        return result
+
+    result = dict(item)
+    criteria = {
+        key: dict(value)
+        for key, value in item.get("criteria", {}).items()
+    }
+    for key, approved in calibration.get("criteria", {}).items():
+        current = dict(criteria.get(key, {}))
+        current["score"] = int(approved["score"])
+        if approved.get("reason"):
+            current["reason"] = approved["reason"]
+        criteria[key] = current
+
+    total = sum(int(block.get("score", 0)) for block in criteria.values())
+    expected = int(calibration["approved_score"])
+    if total != expected:
+        raise ValueError(
+            f"Calibration incohérente pour {item.get('ticker')}: {total} != {expected}"
+        )
+
+    category, max_exposure = category_for(total)
+    result.update({
+        "score": total,
+        "category": category,
+        "max_exposure_usd": max_exposure,
+        "criteria": criteria,
+        "stability": {
+            "status": "APPROVED_CALIBRATION",
+            "reason": "Note validée et figée jusqu’à un déclencheur fondamental matériel.",
+        },
+        "calibration": {
+            "status": "APPLIED",
+            "version": version,
+            "approved_at": calibration.get("approved_at"),
+            "reason": calibration.get("reason", "Calibration validée."),
+        },
+    })
+    return result
+
+
 def load_api_key():
     if os.getenv("OPENAI_API_KEY"):
         return
@@ -280,6 +359,7 @@ def build_scores(tickers):
         raise SystemExit("No company data available for fundamental scoring.")
 
     previous_items, previous_payload = load_previous_scores()
+    calibrations = load_calibrations()
     triggers = {
         snapshot["ticker"]: material_reassessment_reasons(
             snapshot,
@@ -293,10 +373,28 @@ def build_scores(tickers):
 
     if not snapshots_to_assess and previous_payload:
         output = dict(previous_payload)
+        original_items = output.get("items", [])
+        calibrated_items = [
+            apply_approved_calibration(
+                item,
+                calibrations.get(item.get("ticker", "").upper()),
+            )
+            for item in original_items
+        ]
+        calibration_changed = calibrated_items != original_items
+        output["items"] = sorted(
+            calibrated_items,
+            key=lambda item: item["score"],
+            reverse=True,
+        )
         output["usage"] = {"input": 0, "output": 0}
-        output["reassessment_status"] = "FROZEN_NO_MATERIAL_TRIGGER"
+        output["reassessment_status"] = (
+            "APPROVED_CALIBRATION_APPLIED"
+            if calibration_changed
+            else "FROZEN_NO_MATERIAL_TRIGGER"
+        )
         output["reassessed_tickers"] = []
-        output["_unchanged"] = True
+        output["_unchanged"] = not calibration_changed
         return output
 
     load_api_key()
@@ -356,7 +454,12 @@ DONNÉES PUBLIQUES :
                 "status": "FROZEN_NO_MATERIAL_TRIGGER",
                 "reason": "Aucun résultat trimestriel, événement structurel ou changement financier matériel détecté.",
             }
-            results.append(frozen)
+            results.append(
+                apply_approved_calibration(
+                    frozen,
+                    calibrations.get(ticker.upper()),
+                )
+            )
             continue
 
         assessment = assessments.get(ticker)
@@ -379,7 +482,7 @@ DONNÉES PUBLIQUES :
         elif financial["confidence"] == "MEDIUM" and confidence == "HIGH":
             confidence = "MEDIUM"
 
-        results.append({
+        result = {
             "ticker": ticker,
             "company": snapshot["name"],
             "score": total,
@@ -426,7 +529,14 @@ DONNÉES PUBLIQUES :
                 "status": "REASSESSED_ON_MATERIAL_TRIGGER",
                 "reasons": triggers[ticker],
             },
-        })
+        }
+        results.append(
+            apply_approved_calibration(
+                result,
+                calibrations.get(ticker.upper()),
+                triggers[ticker],
+            )
+        )
 
     usage = response.usage
     return {
