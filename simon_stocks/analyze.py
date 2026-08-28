@@ -1,5 +1,6 @@
 import yfinance as yf
 from config import WATCHLIST
+from market_sessions import filter_closed_daily_bars
 
 def rsi(s, n=14):
     d = s.diff()
@@ -11,6 +12,7 @@ print("\nSIMON AI STOCK WATCHLIST - TIMING\n")
 
 for t in WATCHLIST:
     d = yf.Ticker(t).history(period="1y", auto_adjust=True)
+    d = filter_closed_daily_bars(d)
     c = d["Close"]
     p = c.iloc[-1]
     s50 = c.rolling(50).mean().iloc[-1]

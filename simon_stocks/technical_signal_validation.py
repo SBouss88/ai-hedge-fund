@@ -32,10 +32,20 @@ LEG_SEPARATION_SESSIONS = 15
 
 
 def signal_is_actionable(item):
+    """Return whether the trend/setup signal itself is technically valid."""
     setup_type = item.get("setup_type")
     score = int(item.get("score", 0))
     threshold = 60 if setup_type in EARLY_SETUPS else 65
     return setup_type in CONFIRMED_SETUPS and score >= threshold
+
+
+def entry_filter_passes(item):
+    """Keep entry timing separate from detection of the underlying setup."""
+    return (
+        signal_is_actionable(item)
+        and (item.get("entry_quality") or {}).get("action")
+        == "ETUDIER_UNE_ENTREE"
+    )
 
 
 def percent_change(end, start):
@@ -91,6 +101,8 @@ def replay_ticker(ticker, frame, warmup=220, cooldown=5):
                     "price": item["price"],
                     "score": item["score"],
                     "setup_type": item["setup_type"],
+                    "entry_quality": item.get("entry_quality"),
+                    "entry_filter_passes": entry_filter_passes(item),
                     "leg_id": leg_id,
                     "new_leg": new_leg,
                     "execution_gap_pct": (round(execution_gap, 1) if execution_gap is not None else None),
@@ -134,6 +146,37 @@ def summarize(signals):
     }
 
 
+def summarize_entry_filter(signals):
+    """Compare the historical setup detector with the stricter entry filter."""
+    baseline = summarize(signals)
+    filtered_signals = [
+        signal for signal in signals if signal.get("entry_filter_passes")
+    ]
+    filtered = summarize(filtered_signals)
+    rejection_reasons = {}
+    for signal in signals:
+        if signal.get("entry_filter_passes"):
+            continue
+        reason = (
+            (signal.get("entry_quality") or {}).get("reason")
+            or "raison indisponible"
+        )
+        rejection_reasons[reason] = rejection_reasons.get(reason, 0) + 1
+    return {
+        "baseline_technical_signal": baseline,
+        "with_entry_quality_filter": filtered,
+        "signal_retention_rate_pct": (
+            round(len(filtered_signals) / len(signals) * 100, 1)
+            if signals
+            else None
+        ),
+        "rejected_signals": len(signals) - len(filtered_signals),
+        "rejection_reasons": dict(
+            sorted(rejection_reasons.items(), key=lambda pair: (-pair[1], pair[0]))
+        ),
+    }
+
+
 def signal_in_window(signal, start=None, end=None):
     signal_date = date.fromisoformat(signal["date"])
     return not ((start is not None and signal_date < start) or (end is not None and signal_date > end))
@@ -154,6 +197,7 @@ def validate(tickers, period="5y", start=None, end=None):
                 {
                     "ticker": ticker,
                     "summary": summarize(signals),
+                    "entry_filter_comparison": summarize_entry_filter(signals),
                     "signals": signals,
                 }
             )
@@ -161,10 +205,11 @@ def validate(tickers, period="5y", start=None, end=None):
             unavailable.append({"ticker": ticker, "reason": str(error)})
     return {
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "method": "technical_score_v7_point_in_time_validation_v2",
+        "method": "technical_score_v7_with_entry_quality_point_in_time_validation_v3",
         "success_definition": ("Rendement à 20 séances positif et ratio excursion favorable / " "drawdown maximal au moins égal à 1."),
         "clean_success_definition": ("Succès brut, gap d’ouverture inférieur ou égal à 2 %, drawdown " "maximal limité à 8 %, avec les répétitions d’une même jambe " "identifiées séparément."),
         "summary": summarize(all_signals),
+        "entry_filter_comparison": summarize_entry_filter(all_signals),
         "items": items,
         "unavailable": unavailable,
     }

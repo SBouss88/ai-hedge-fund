@@ -5,6 +5,7 @@ from pathlib import Path
 import yfinance as yf
 
 from config import WATCHLIST
+from market_sessions import filter_closed_daily_bars
 
 
 HERE = Path(__file__).resolve().parent
@@ -29,6 +30,193 @@ def confirmed_swing_lows(frame, lookback=90, window=3):
         if value <= float(local_window.min()):
             lows.append({"position": start + index, "value": value})
     return lows
+
+
+def confirmed_swing_highs(frame, lookback=90, window=3):
+    start = max(0, len(frame) - lookback)
+    recent = frame.iloc[start:].reset_index(drop=True)
+    highs = []
+    for index in range(window, len(recent) - window):
+        value = float(recent.loc[index, "High"])
+        local_window = recent.loc[index - window:index + window, "High"]
+        if value >= float(local_window.max()):
+            highs.append({"position": start + index, "value": value})
+    return highs
+
+
+CONFIRMED_SETUPS = {
+    "HIGHER LOW",
+    "BREAKOUT",
+    "RETOURNEMENT CONFIRMÉ",
+    "PULLBACK CONFIRMÉ",
+    "STABILISATION CONFIRMÉE",
+}
+
+
+def entry_action_from_metrics(score, setup_type, metrics):
+    """Translate a valid trend signal into a separate entry-timing action."""
+    if setup_type not in CONFIRMED_SETUPS or score < 65:
+        return {
+            "action": "ATTENDRE_UN_SIGNAL",
+            "label": "ATTENDRE UN SIGNAL TECHNIQUE",
+            "reason": "déclencheur technique insuffisant",
+        }
+
+    breakout_confirmed = bool(metrics.get("breakout_confirmed"))
+    if (
+        metrics.get("extended_rally")
+        or (metrics.get("performance_20d_pct") or 0) >= 18
+    ):
+        return {
+            "action": "ATTENDRE_MEILLEUR_POINT_ENTREE",
+            "label": "ATTENDRE UN MEILLEUR POINT D’ENTRÉE",
+            "reason": "mouvement récent trop étendu",
+        }
+    if metrics.get("near_resistance") and not breakout_confirmed:
+        return {
+            "action": "NE_PAS_POURSUIVRE",
+            "label": "NE PAS POURSUIVRE",
+            "reason": "résistance trop proche sans cassure confirmée par le volume",
+        }
+    if metrics.get("support_distance_atr") is not None and metrics["support_distance_atr"] > 3:
+        return {
+            "action": "ATTENDRE_MEILLEUR_POINT_ENTREE",
+            "label": "ATTENDRE UN MEILLEUR POINT D’ENTRÉE",
+            "reason": "cours trop éloigné du support",
+        }
+    reward_risk = metrics.get("reward_risk_ratio")
+    if reward_risk is not None and reward_risk < 1.3:
+        return {
+            "action": "ATTENDRE_MEILLEUR_POINT_ENTREE",
+            "label": "ATTENDRE UN MEILLEUR POINT D’ENTRÉE",
+            "reason": "rendement/risque insuffisant avant la résistance",
+        }
+    if score >= 80:
+        return {
+            "action": "ETUDIER_UNE_ENTREE",
+            "label": "ÉTUDIER UNE ENTRÉE",
+            "reason": "signal confirmé, prix non étendu et rendement/risque favorable",
+        }
+    return {
+        "action": "SURVEILLER",
+        "label": "SURVEILLER",
+        "reason": "signal valide mais score encore inférieur à 80",
+    }
+
+
+def assess_entry_quality(frame, score, setup_type, higher_low, trigger_event):
+    """Measure whether today's price still offers an attractive entry."""
+    price = float(frame["Close"].iloc[-1])
+    sma20 = float(frame["Close"].rolling(20).mean().iloc[-1])
+    sma50 = float(frame["Close"].rolling(50).mean().iloc[-1])
+    previous_close = frame["Close"].shift(1)
+    true_ranges = (frame["High"] - frame["Low"]).to_frame("intraday")
+    true_ranges["gap_high"] = (frame["High"] - previous_close).abs()
+    true_ranges["gap_low"] = (frame["Low"] - previous_close).abs()
+    atr14 = float(true_ranges.max(axis=1).rolling(14).mean().iloc[-1])
+    performance_20d_pct = (
+        (price / float(frame["Close"].iloc[-21]) - 1) * 100
+    )
+
+    support_candidates = [
+        value
+        for value in (sma20, sma50, higher_low.get("value"))
+        if value is not None and float(value) < price
+    ]
+    support_candidates.extend(
+        point["value"]
+        for point in confirmed_swing_lows(frame)
+        if point["value"] < price
+    )
+    if setup_type.startswith("BREAKOUT") and trigger_event:
+        breakout_level = trigger_event.get("level")
+        if breakout_level is not None and breakout_level < price:
+            support_candidates.append(float(breakout_level))
+    support = max(support_candidates, default=None)
+
+    resistance_candidates = [
+        point["value"]
+        for point in confirmed_swing_highs(frame)
+        if point["value"] > price * 1.001
+    ]
+    prior_20d_high = float(frame["High"].iloc[-21:-1].max())
+    if prior_20d_high > price * 1.001:
+        resistance_candidates.append(prior_20d_high)
+    resistance = min(resistance_candidates, default=None)
+
+    support_distance_pct = (
+        (price / support - 1) * 100 if support else None
+    )
+    resistance_distance_pct = (
+        (resistance / price - 1) * 100 if resistance else None
+    )
+    support_distance_atr = (
+        (price - support) / atr14 if support and atr14 > 0 else None
+    )
+    resistance_distance_atr = (
+        (resistance - price) / atr14
+        if resistance and atr14 > 0
+        else None
+    )
+    reward_risk_ratio = (
+        resistance_distance_pct / support_distance_pct
+        if resistance_distance_pct is not None
+        and support_distance_pct is not None
+        and support_distance_pct > 0
+        else None
+    )
+    distance_sma20_atr = (price - sma20) / atr14 if atr14 > 0 else None
+    distance_sma50_atr = (price - sma50) / atr14 if atr14 > 0 else None
+    breakout_volume_ratio = (
+        float((trigger_event or {}).get("volume_ratio", 0))
+        if setup_type == "BREAKOUT"
+        else 0
+    )
+    breakout_confirmed = (
+        setup_type == "BREAKOUT" and breakout_volume_ratio >= 1.2
+    )
+    extended_rally = (
+        performance_20d_pct >= 18
+        or (distance_sma20_atr is not None and distance_sma20_atr >= 2.5)
+        or (distance_sma50_atr is not None and distance_sma50_atr >= 4)
+    )
+    near_resistance = (
+        resistance_distance_pct is not None
+        and (
+            resistance_distance_pct <= 2
+            or (
+                resistance_distance_atr is not None
+                and resistance_distance_atr <= 0.8
+            )
+        )
+    )
+    metrics = {
+        "performance_20d_pct": round(performance_20d_pct, 1),
+        "atr14": round(atr14, 2),
+        "sma20": round(sma20, 2),
+        "sma50": round(sma50, 2),
+        "distance_sma20_atr": round(distance_sma20_atr, 2)
+        if distance_sma20_atr is not None else None,
+        "distance_sma50_atr": round(distance_sma50_atr, 2)
+        if distance_sma50_atr is not None else None,
+        "support": round(support, 2) if support else None,
+        "support_distance_pct": round(support_distance_pct, 1)
+        if support_distance_pct is not None else None,
+        "support_distance_atr": round(support_distance_atr, 2)
+        if support_distance_atr is not None else None,
+        "resistance": round(resistance, 2) if resistance else None,
+        "resistance_distance_pct": round(resistance_distance_pct, 1)
+        if resistance_distance_pct is not None else None,
+        "resistance_distance_atr": round(resistance_distance_atr, 2)
+        if resistance_distance_atr is not None else None,
+        "reward_risk_ratio": round(reward_risk_ratio, 2)
+        if reward_risk_ratio is not None else None,
+        "breakout_volume_ratio": round(breakout_volume_ratio, 2),
+        "breakout_confirmed": breakout_confirmed,
+        "extended_rally": extended_rally,
+        "near_resistance": near_resistance,
+    }
+    return {**metrics, **entry_action_from_metrics(score, setup_type, metrics)}
 
 
 def higher_low_context(frame):
@@ -789,6 +977,13 @@ def score_ticker(ticker, frame):
         higher_low,
         price,
     )
+    entry_quality = assess_entry_quality(
+        frame,
+        total,
+        setup_type,
+        higher_low,
+        trigger_event,
+    )
 
     return {
         "ticker": ticker,
@@ -802,6 +997,7 @@ def score_ticker(ticker, frame):
         "previous_close": round(previous_close, 2),
         "opening_gap_pct": round(opening_gap, 1),
         "invalidation": invalidation,
+        "entry_quality": entry_quality,
         "rsi14": round(rsi14, 1),
         "metrics": {
             "sma50": round(sma50, 2),
@@ -824,9 +1020,18 @@ def build_rankings(tickers):
     for ticker in tickers:
         try:
             frame = yf.Ticker(ticker).history(period="1y", auto_adjust=True)
+            frame = filter_closed_daily_bars(frame)
             if frame.empty:
                 raise ValueError("données indisponibles")
             current = score_ticker(ticker, frame)
+            current["price_history_1m"] = [
+                {
+                    "date": market_date.date().isoformat(),
+                    "close": round(float(row["Close"]), 2),
+                }
+                for market_date, row in frame.tail(22).iterrows()
+                if row.get("Close") is not None
+            ]
             score_history = []
             for offset in (2, 1, 0):
                 sample = frame.iloc[: len(frame) - offset] if offset else frame
@@ -857,6 +1062,7 @@ def build_rankings(tickers):
 
     return {
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "session_policy": "COMPLETED_US_SESSIONS_ONLY",
         "method": "technical_score_v7_confirmed_higher_low_and_signal_validation",
         "items": sorted(items, key=lambda item: item["score"], reverse=True),
         "unavailable": unavailable,

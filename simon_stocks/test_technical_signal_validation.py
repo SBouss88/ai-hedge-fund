@@ -1,7 +1,13 @@
 import pandas as pd
 
 from quick_rankings import higher_low_trigger, setup_invalidation
-from technical_signal_validation import evaluate_outcome, percent_change, signal_in_window
+from technical_signal_validation import (
+    entry_filter_passes,
+    evaluate_outcome,
+    percent_change,
+    signal_in_window,
+    summarize_entry_filter,
+)
 
 
 def price_frame(rows):
@@ -79,4 +85,56 @@ def test_setup_invalidation_uses_the_setup_specific_level():
         "level": 98.0,
         "distance_pct": -2.0,
         "rule": "Clôture de retour sous le niveau de breakout",
+    }
+
+
+def test_entry_filter_keeps_signal_detection_separate_from_entry_timing():
+    item = {
+        "score": 85,
+        "setup_type": "HIGHER LOW",
+        "entry_quality": {
+            "action": "ATTENDRE_MEILLEUR_POINT_ENTREE",
+            "reason": "mouvement récent trop étendu",
+        },
+    }
+    assert entry_filter_passes(item) is False
+
+    item["entry_quality"]["action"] = "ETUDIER_UNE_ENTREE"
+    assert entry_filter_passes(item) is True
+
+
+def test_entry_filter_summary_compares_retained_and_rejected_signals():
+    outcome = {
+        "return_pct": 5.0,
+        "max_drawdown_pct": -2.0,
+        "reward_risk": 2.0,
+    }
+    signals = [
+        {
+            "outcome_20d": outcome,
+            "successful_20d": True,
+            "clean_successful_20d": True,
+            "execution_allowed": True,
+            "new_leg": True,
+            "entry_filter_passes": True,
+            "entry_quality": {"reason": "signal confirmé"},
+        },
+        {
+            "outcome_20d": outcome,
+            "successful_20d": True,
+            "clean_successful_20d": True,
+            "execution_allowed": True,
+            "new_leg": True,
+            "entry_filter_passes": False,
+            "entry_quality": {"reason": "mouvement récent trop étendu"},
+        },
+    ]
+
+    comparison = summarize_entry_filter(signals)
+
+    assert comparison["baseline_technical_signal"]["completed_20d"] == 2
+    assert comparison["with_entry_quality_filter"]["completed_20d"] == 1
+    assert comparison["signal_retention_rate_pct"] == 50.0
+    assert comparison["rejection_reasons"] == {
+        "mouvement récent trop étendu": 1
     }

@@ -329,15 +329,22 @@ def fetch_company_ir_news(ticker, limit=3):
         title = re.sub(r"\s+-\s+[^-]+$", "", title)
         if not title or _is_non_material_ir_item(title):
             continue
+        event_type = classify_news_event(title)
+        summary = (
+            "Official company quarterly-results publication. The public feed "
+            "contains the headline only; figures must be verified in the release."
+            if event_type == "QUARTERLY_RESULTS"
+            else "Official company Investor Relations headline."
+        )
         news.append({
             "title": title,
-            "summary": "Official company Investor Relations headline.",
+            "summary": summary,
             "date": (item.findtext("pubDate") or "").strip(),
             "company": ticker.upper(),
             "ticker": ticker.upper(),
             "source": "Company IR",
             "source_type": "FIRST_PARTY",
-            "event_type": classify_news_event(title),
+            "event_type": event_type,
             "url": (item.findtext("link") or "").strip(),
         })
         if len(news) >= limit:

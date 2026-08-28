@@ -68,6 +68,8 @@ def eligibility(technical, fundamental, valuation, earnings):
     blockers = []
     if not technical_ready(technical):
         blockers.append("TECHNIQUE_NON_CONFIRMÉE")
+    elif (technical.get("entry_quality") or {}).get("action") != "ETUDIER_UNE_ENTREE":
+        blockers.append("POINT_ENTRÉE_NON_FAVORABLE")
     if fundamental.get("score") is None or fundamental.get("score", 0) < 55 or fundamental.get("max_exposure_usd", 0) <= 0:
         blockers.append("FONDAMENTAL_NON_INVESTISSABLE")
     if valuation.get("label") in {
@@ -83,6 +85,18 @@ def eligibility(technical, fundamental, valuation, earnings):
     if days_until is None or days_until <= 7:
         blockers.append("RÉSULTATS_PROCHES_OU_INCONNUS")
     return not blockers, blockers
+
+
+def merge_session_records(prior_records, new_records):
+    """Keep exactly one final snapshot per ticker and technical session."""
+    merged = {}
+    order = []
+    for record in [*prior_records, *new_records]:
+        key = (record.get("ticker"), record.get("technical_as_of"))
+        if key not in merged:
+            order.append(key)
+        merged[key] = record
+    return [merged[key] for key in order]
 
 
 def execution_check(signal, technical):
@@ -123,9 +137,11 @@ def build_journal_records():
     new_records = []
     for ticker, technical in technical_items.items():
         as_of = technical.get("as_of")
-        ticker_history = prior_by_ticker.get(ticker, [])
-        if as_of and any(record.get("technical_as_of") == as_of for record in ticker_history):
-            continue
+        ticker_history = [
+            record
+            for record in prior_by_ticker.get(ticker, [])
+            if record.get("technical_as_of") != as_of
+        ]
 
         fundamental = fundamental_items.get(ticker, {})
         valuation = valuation_items.get(ticker, {})
@@ -171,6 +187,7 @@ def build_journal_records():
                 "rsi14": technical.get("rsi14"),
                 "components": technical.get("components", {}),
                 "invalidation": technical.get("invalidation"),
+                "entry_quality": technical.get("entry_quality"),
                 "fundamental_score": fundamental.get("score"),
                 "fundamental_category": fundamental.get("category"),
                 "max_exposure_usd": fundamental.get("max_exposure_usd"),
@@ -192,11 +209,17 @@ def build_journal_records():
 def main():
     HISTORY.mkdir(exist_ok=True)
     prior_records, new_records, generated_at = build_journal_records()
-    if new_records:
-        with JOURNAL_PATH.open("a", encoding="utf-8") as journal:
-            for record in new_records:
-                journal.write(json.dumps(record, ensure_ascii=False) + "\n")
-    all_records = [*prior_records, *new_records]
+    replaced_keys = {
+        (record.get("ticker"), record.get("technical_as_of"))
+        for record in prior_records
+    } & {
+        (record.get("ticker"), record.get("technical_as_of"))
+        for record in new_records
+    }
+    all_records = merge_session_records(prior_records, new_records)
+    with JOURNAL_PATH.open("w", encoding="utf-8") as journal:
+        for record in all_records:
+            journal.write(json.dumps(record, ensure_ascii=False) + "\n")
     latest = {}
     for record in all_records:
         latest[record["ticker"]] = record
@@ -204,7 +227,9 @@ def main():
         "generated_at": generated_at,
         "journal": JOURNAL_PATH.name,
         "items": latest,
-        "records_added": len(new_records),
+        "records_processed": len(new_records),
+        "records_added": len(new_records) - len(replaced_keys),
+        "records_replaced": len(replaced_keys),
     }
     STATE_PATH.write_text(
         json.dumps(state, ensure_ascii=False, indent=2),

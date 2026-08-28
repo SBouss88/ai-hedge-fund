@@ -7,7 +7,9 @@ from datetime import date, datetime
 from pathlib import Path
 
 import streamlit as st
+import yfinance as yf
 from config import WATCHLIST
+from market_sessions import filter_closed_daily_bars
 
 HERE = Path(__file__).resolve().parent
 FRENCH_MONTHS = (
@@ -89,6 +91,156 @@ def section_gap():
         '<div class="section-gap" aria-hidden="true"></div>',
         unsafe_allow_html=True,
     )
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def monthly_price_history(ticker):
+    try:
+        frame = yf.Ticker(ticker).history(period="1mo", auto_adjust=True)
+    except Exception:
+        return []
+    if frame.empty or "Close" not in frame:
+        return []
+    frame = filter_closed_daily_bars(frame)
+    return [
+        {
+            "date": market_date.date().isoformat(),
+            "close": round(float(close), 2),
+        }
+        for market_date, close in frame["Close"].dropna().items()
+    ]
+
+
+def render_monthly_price_chart(ticker, history):
+    if len(history) < 2:
+        st.caption("Graphique mensuel momentanément indisponible.")
+        return
+    first_close = history[0]["close"]
+    last_close = history[-1]["close"]
+    change_pct = (
+        (last_close / first_close - 1) * 100
+        if first_close
+        else 0.0
+    )
+    change_value = last_close - first_close
+    is_positive = change_value >= 0
+    direction = "↑" if is_positive else "↓"
+    tone = "positive" if is_positive else "negative"
+    chart_color = "#16a34a" if is_positive else "#ef4444"
+    price_text = f"{last_close:,.2f}".replace(",", " ").replace(".", ",")
+    change_text = f"{change_value:+,.2f}".replace(",", " ").replace(".", ",")
+    latest_date = date.fromisoformat(history[-1]["date"])
+    close_date = (
+        f"{latest_date.day} {FRENCH_MONTHS[latest_date.month - 1]} "
+        f"{latest_date.year}"
+    )
+    baseline = min(point["close"] for point in history) * 0.98
+    chart_history = [
+        {
+            **point,
+            "baseline": baseline,
+            "is_last": index == len(history) - 1,
+        }
+        for index, point in enumerate(history)
+    ]
+    chart_width = 1000
+    chart_height = 240
+    plot_left, plot_right = 62, 982
+    plot_top, plot_bottom = 18, 196
+    closes = [point["close"] for point in chart_history]
+    raw_min, raw_max = min(closes), max(closes)
+    price_span = raw_max - raw_min
+    padding = price_span * 0.12 if price_span else max(raw_max * 0.02, 1)
+    scale_min = raw_min - padding
+    scale_max = raw_max + padding
+
+    def chart_x(index):
+        return plot_left + (
+            index * (plot_right - plot_left) / (len(chart_history) - 1)
+        )
+
+    def chart_y(value):
+        return plot_bottom - (
+            (value - scale_min)
+            * (plot_bottom - plot_top)
+            / (scale_max - scale_min)
+        )
+
+    line_points = " ".join(
+        f"{chart_x(index):.1f},{chart_y(point['close']):.1f}"
+        for index, point in enumerate(chart_history)
+    )
+    area_points = (
+        f"{plot_left},{plot_bottom} {line_points} "
+        f"{plot_right},{plot_bottom}"
+    )
+    tick_indexes = sorted({
+        round(index * (len(chart_history) - 1) / 4)
+        for index in range(5)
+    })
+    x_ticks = "".join(
+        (
+            f'<text x="{chart_x(index):.1f}" y="225" '
+            'text-anchor="middle" class="monthly-svg-label">'
+            f'{date.fromisoformat(chart_history[index]["date"]).day} '
+            f'{FRENCH_MONTHS[date.fromisoformat(chart_history[index]["date"]).month - 1][:4]}.'
+            '</text>'
+        )
+        for index in tick_indexes
+    )
+    y_ticks = []
+    for index in range(4):
+        value = scale_min + index * (scale_max - scale_min) / 3
+        y = chart_y(value)
+        value_text = (
+            f"{value:.2f}" if scale_max < 100 else f"{value:.0f}"
+        ).replace(".", ",")
+        y_ticks.append(
+            f'<line x1="{plot_left}" x2="{plot_right}" y1="{y:.1f}" '
+            f'y2="{y:.1f}" class="monthly-svg-grid" />'
+            f'<text x="52" y="{y + 4:.1f}" text-anchor="end" '
+            f'class="monthly-svg-label">{value_text}</text>'
+        )
+    gradient_id = f"monthly-gradient-{html.escape(ticker.lower())}"
+    chart_svg = f"""
+        <svg class="monthly-price-svg" viewBox="0 0 {chart_width} {chart_height}"
+             role="img" aria-label="Cours de {html.escape(ticker)} sur un mois">
+            <defs>
+                <linearGradient id="{gradient_id}" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="{chart_color}" stop-opacity="0.24" />
+                    <stop offset="100%" stop-color="{chart_color}" stop-opacity="0.03" />
+                </linearGradient>
+            </defs>
+            {''.join(y_ticks)}
+            <polygon points="{area_points}" fill="url(#{gradient_id})" />
+            <polyline points="{line_points}" fill="none" stroke="{chart_color}"
+                      stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+            <circle cx="{chart_x(len(chart_history) - 1):.1f}"
+                    cy="{chart_y(last_close):.1f}" r="5.5" fill="{chart_color}" />
+            {x_ticks}
+        </svg>
+    """
+    _, chart_column, _ = st.columns([0.12, 0.76, 0.12])
+    with chart_column:
+        st.markdown(
+            f"""
+            <div class="monthly-chart-summary">
+                <span class="monthly-chart-price">{html.escape(price_text)}</span>
+                <span class="monthly-chart-currency">USD</span>
+                <span class="monthly-chart-badge {tone}">
+                    {direction} {abs(change_pct):.2f} %
+                </span>
+                <span class="monthly-chart-change {tone}">
+                    {html.escape(change_text)} depuis 1 mois
+                </span>
+            </div>
+            <div class="monthly-chart-date">
+                {html.escape(ticker)} · clôture définitive du {html.escape(close_date)}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown(chart_svg, unsafe_allow_html=True)
 
 
 def report_timestamp(path):
@@ -274,6 +426,19 @@ def technical_signal_ready(item):
     return score >= 65 and has_confirmed_trigger(item)
 
 
+def entry_action(item):
+    return ((item or {}).get("entry_quality") or {}).get("action")
+
+
+def entry_timing_ready(item):
+    return technical_signal_ready(item) and entry_action(item) == "ETUDIER_UNE_ENTREE"
+
+
+def entry_timing_text(item):
+    quality = (item or {}).get("entry_quality") or {}
+    return quality.get("reason") or technical_blocker_text(item)
+
+
 def technical_blocker_text(item):
     item = item or {}
     score = item.get("score", 0)
@@ -347,6 +512,16 @@ def structured_positioning(technical_item, fundamental_item, valuation_item, day
     if days is not None and days <= 7:
         return "ATTENDRE LES RÉSULTATS", "orange"
     if technical_signal_ready(technical_item):
+        timing_action = entry_action(technical_item)
+        timing_reason = entry_timing_text(technical_item)
+        if timing_action == "ATTENDRE_MEILLEUR_POINT_ENTREE":
+            return f"ATTENDRE UN MEILLEUR POINT D’ENTRÉE — {timing_reason}", "orange"
+        if timing_action == "NE_PAS_POURSUIVRE":
+            return f"NE PAS POURSUIVRE — {timing_reason}", "orange"
+        if timing_action == "SURVEILLER":
+            return f"SURVEILLER — {timing_reason}", "yellow"
+        if timing_action != "ETUDIER_UNE_ENTREE":
+            return "SURVEILLER — QUALITÉ DU POINT D’ENTRÉE À CONFIRMER", "yellow"
         if (technical_item or {}).get("setup_type") in (
             "RETOURNEMENT CONFIRMÉ",
             "PULLBACK CONFIRMÉ",
@@ -537,6 +712,10 @@ def comparison_action_label(
     )
     if color == "green":
         return "Étudier une entrée", True
+    if "NE PAS POURSUIVRE" in action:
+        return "Ne pas poursuivre", False
+    if "ATTENDRE UN MEILLEUR POINT D’ENTRÉE" in action:
+        return "Attendre un meilleur point", False
     if "SURVEILLER" in action:
         return "Surveiller", False
     return "Attendre", False
@@ -1113,6 +1292,68 @@ st.markdown(
         line-height: 1.15;
         text-align: right;
     }
+    .monthly-chart-summary {
+        align-items: center;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem 0.75rem;
+        margin-top: 0.15rem;
+    }
+    .monthly-chart-price {
+        font-size: 2.15rem;
+        font-weight: 500;
+        letter-spacing: -0.035em;
+        line-height: 1;
+    }
+    .monthly-chart-currency {
+        color: #737780;
+        font-size: 1rem;
+        margin-left: -0.4rem;
+    }
+    .monthly-chart-badge {
+        border-radius: 0.7rem;
+        font-size: 0.95rem;
+        font-weight: 750;
+        padding: 0.35rem 0.55rem;
+    }
+    .monthly-chart-change {
+        font-size: 0.95rem;
+        font-weight: 700;
+    }
+    .monthly-chart-badge.positive {
+        background: rgba(22, 163, 74, 0.12);
+        color: #15803d;
+    }
+    .monthly-chart-badge.negative {
+        background: rgba(239, 68, 68, 0.12);
+        color: #b91c1c;
+    }
+    .monthly-chart-change.positive {
+        color: #15803d;
+    }
+    .monthly-chart-change.negative {
+        color: #b91c1c;
+    }
+    .monthly-chart-date {
+        color: #737780;
+        font-size: 0.76rem;
+        margin: 0.3rem 0 0.15rem;
+    }
+    .monthly-price-svg {
+        display: block;
+        height: auto;
+        max-height: 240px;
+        overflow: visible;
+        width: 100%;
+    }
+    .monthly-svg-grid {
+        stroke: rgba(115, 119, 128, 0.18);
+        stroke-width: 1;
+    }
+    .monthly-svg-label {
+        fill: #737780;
+        font-size: 14px;
+    }
     .comparison-wrap {
         overflow-x: auto;
         width: 100%;
@@ -1126,7 +1367,7 @@ st.markdown(
     .comparison-table th,
     .comparison-table td {
         border-bottom: 1px solid rgba(110, 118, 129, 0.25);
-        padding: 0.48rem 0.5rem;
+        padding: 0.38rem 0.5rem;
         text-align: left;
         vertical-align: middle;
         white-space: nowrap;
@@ -1242,6 +1483,26 @@ if True:
     )
     st.session_state.changes = comparison.stdout.strip()
 
+fundamental_generated_at = parsed_datetime(
+    (st.session_state.fundamental_scores or {}).get("generated_at")
+)
+market_update_text = (
+    french_datetime(st.session_state.analysis_updated_at)
+    if st.session_state.analysis_updated_at
+    else "aucune"
+)
+fundamental_update_text = (
+    french_datetime(fundamental_generated_at)
+    if fundamental_generated_at
+    else "aucune"
+)
+
+balance_path = HERE / "history" / "openai_balance_start.txt"
+spent_path = HERE / "history" / "openai_spent.txt"
+start_balance = float(balance_path.read_text().strip()) if balance_path.exists() else 0.0
+spent = float(spent_path.read_text().strip()) if spent_path.exists() else 0.0
+remaining = max(start_balance - spent, 0.0)
+
 header_column, calendar_column = st.columns([4, 1.35])
 with header_column:
     section_heading("Simon AI — Suivi des actions", level=1)
@@ -1260,6 +1521,14 @@ with header_column:
         update_fundamentals = st.button(
             "Réévaluer les fondamentaux",
             use_container_width=True,
+        )
+    st.caption(
+        f"Marché : {market_update_text} · Fondamentaux : {fundamental_update_text}"
+    )
+    with st.expander("Coût des analyses"):
+        st.caption(
+            f"Dépensé : ${spent:.4f} · solde estimé : ${remaining:.2f} "
+            f"sur ${start_balance:.2f}"
         )
 with calendar_column:
     with st.container(border=True, key="earnings_calendar_panel"):
@@ -1345,35 +1614,6 @@ if update_fundamentals:
         st.error("Erreur pendant la réévaluation fondamentale")
         st.code(result.stderr, language=None)
 
-fundamental_generated_at = parsed_datetime(
-    (st.session_state.fundamental_scores or {}).get("generated_at")
-)
-market_update_text = (
-    french_datetime(st.session_state.analysis_updated_at)
-    if st.session_state.analysis_updated_at
-    else "aucune"
-)
-fundamental_update_text = (
-    french_datetime(fundamental_generated_at)
-    if fundamental_generated_at
-    else "aucune"
-)
-st.caption(
-    f"Marché : {market_update_text} · Fondamentaux : {fundamental_update_text}"
-)
-
-balance_path = HERE / "history" / "openai_balance_start.txt"
-spent_path = HERE / "history" / "openai_spent.txt"
-
-start_balance = float(balance_path.read_text().strip()) if balance_path.exists() else 0.0
-spent = float(spent_path.read_text().strip()) if spent_path.exists() else 0.0
-remaining = max(start_balance - spent, 0.0)
-
-with st.expander("Coût des analyses"):
-    st.caption(
-        f"Dépensé : ${spent:.4f} · solde estimé : ${remaining:.2f} "
-        f"sur ${start_balance:.2f}"
-    )
 section_gap()
 
 quick_rankings_path = HERE / "history" / "quick_rankings_latest.json"
@@ -1467,6 +1707,8 @@ if quick_rankings:
             investable_rankings.append(ranking)
         if not technical_signal_ready(ranking):
             blockers.append(technical_blocker_text(ranking))
+        elif not entry_timing_ready(ranking):
+            blockers.append(entry_timing_text(ranking))
         if valuation_label == "INDISPONIBLE":
             blockers.append("valorisation indisponible")
         elif valuation_is_blocking(valuation_label):
@@ -1494,7 +1736,7 @@ if quick_rankings:
         try:
             as_of_date = date.fromisoformat(as_of)
             as_of_text = (
-                "Dernière séance utilisée : "
+                "Dernière séance clôturée utilisée : "
                 f"{as_of_date.day} "
                 f"{FRENCH_MONTHS[as_of_date.month - 1]} "
                 f"{as_of_date.year}"
@@ -1548,6 +1790,7 @@ if quick_rankings:
         preview_technical = focus_ranking.get("score", 0)
         preview_trigger = has_confirmed_trigger(focus_ranking)
         preview_technical_pass = technical_signal_ready(focus_ranking)
+        preview_entry_action = entry_action(focus_ranking)
         preview_earnings_days = focus_preview.get("earnings_days")
         preview_fundamental_pass = (
             preview_fundamental is not None
@@ -1556,7 +1799,13 @@ if quick_rankings:
         )
         preview_valuation_pass = not valuation_is_blocking(preview_valuation)
         if preview_fundamental_pass and preview_valuation_pass:
-            if (
+            if preview_entry_action == "ATTENDRE_MEILLEUR_POINT_ENTREE":
+                express_title = "SIGNAL HAUSSIER — MOUVEMENT TROP ÉTENDU"
+            elif preview_entry_action == "NE_PAS_POURSUIVRE":
+                express_title = "SIGNAL HAUSSIER — NE PAS POURSUIVRE SOUS LA RÉSISTANCE"
+            elif preview_entry_action == "SURVEILLER":
+                express_title = "SIGNAL HAUSSIER — POINT D’ENTRÉE À SURVEILLER"
+            elif (
                 preview_valuation in CAUTION_VALUATIONS
                 and (not preview_technical_pass or not preview_trigger)
             ):
@@ -1624,6 +1873,11 @@ if quick_rankings:
 
         if focus_ranking:
             focus_ticker = focus_ranking.get("ticker", "—")
+            price_history = focus_ranking.get("price_history_1m") or []
+            if len(price_history) < 2:
+                price_history = monthly_price_history(focus_ticker)
+            render_monthly_price_chart(focus_ticker, price_history)
+
             focus_check = express_checks.get(focus_ticker, {})
             technical_score = focus_ranking.get("score", 0)
             fundamental_score = focus_check.get("fundamental_score")
@@ -1631,6 +1885,7 @@ if quick_rankings:
             valuation_label = focus_check.get("valuation_label", "INDISPONIBLE")
             earnings_days = focus_check.get("earnings_days")
             technical_pass = technical_signal_ready(focus_ranking)
+            entry_pass = entry_timing_ready(focus_ranking)
             fundamental_pass = (
                 fundamental_score is not None
                 and fundamental_score >= 55
@@ -1737,6 +1992,8 @@ if quick_rankings:
                 reasons = []
                 if not technical_pass:
                     reasons.append(technical_blocker_text(focus_ranking))
+                elif not entry_pass:
+                    reasons.append(entry_timing_text(focus_ranking))
                 if not fundamental_pass:
                     reasons.append(
                         "le score fondamental ne permet pas encore une position"
@@ -1754,11 +2011,17 @@ if quick_rankings:
                         reasons.append(
                             f"les résultats seront publiés dans {earnings_days} jours"
                         )
-                action_text = (
-                    "Attendre : "
-                    + "; ".join(reasons[:3])
-                    + "."
-                )
+                focus_entry_action = entry_action(focus_ranking)
+                if focus_entry_action == "NE_PAS_POURSUIVRE":
+                    action_text = "NE PAS POURSUIVRE — " + "; ".join(reasons[:3]) + "."
+                elif focus_entry_action == "ATTENDRE_MEILLEUR_POINT_ENTREE":
+                    action_text = (
+                        "ATTENDRE UN MEILLEUR POINT D’ENTRÉE — "
+                        + "; ".join(reasons[:3])
+                        + "."
+                    )
+                else:
+                    action_text = "Attendre : " + "; ".join(reasons[:3]) + "."
             st.markdown(
                 '<div class="express-action"><strong>À faire :</strong> '
                 + html.escape(action_text)
@@ -1777,6 +2040,24 @@ if quick_rankings:
                         f"**{label} : {component.get('score', 0)}** — "
                         f"{component.get('detail', '')}"
                     )
+                quality = focus_ranking.get("entry_quality") or {}
+                st.markdown("**Qualité du point d’entrée — séparée du score**")
+                st.write(
+                    f"Performance 20 séances : {quality.get('performance_20d_pct', 'N/A')} % · "
+                    f"écart MM20 : {quality.get('distance_sma20_atr', 'N/A')} ATR · "
+                    f"écart MM50 : {quality.get('distance_sma50_atr', 'N/A')} ATR"
+                )
+                st.write(
+                    f"Support : {quality.get('support', 'N/A')} "
+                    f"({quality.get('support_distance_pct', 'N/A')} %) · "
+                    f"résistance : {quality.get('resistance', 'N/A')} "
+                    f"(+{quality.get('resistance_distance_pct', 'N/A')} %) · "
+                    f"rendement/risque : {quality.get('reward_risk_ratio', 'N/A')}"
+                )
+                st.write(
+                    f"**Action : {quality.get('label', 'INDISPONIBLE')}** — "
+                    f"{quality.get('reason', 'analyse indisponible')}"
+                )
 
         with st.expander("Comment le score technique est calculé"):
             st.caption(
@@ -1797,7 +2078,15 @@ if quick_rankings:
                 "volume exceptionnel, le point bas doit tenir deux séances, les clôtures "
                 "doivent remonter et le volume doit nettement se contracter. "
                 "Le prix nominal de l’action n’est pas récompensé. Les dossiers "
-                "doivent avoir un fondamental d’au moins 55/100, un score technique "
+                "doivent avoir un fondamental d’au moins 55/100. Le signal technique "
+                "reste distinct de la qualité du point d’entrée. Celle-ci contrôle la "
+                "performance sur 20 séances, les écarts aux MM20/MM50 normalisés par "
+                "l’ATR, le support, la prochaine résistance et le rendement/risque. "
+                "Une progression d’au moins 18 % sur 20 séances ou un prix très éloigné "
+                "des moyennes déclenche une attente, sans supprimer le Higher Low. "
+                "Une résistance à moins de 2 % ou 0,8 ATR sans breakout confirmé conduit "
+                "à ne pas poursuivre. L’entrée exige normalement 80/100, un prix non "
+                "étendu et un rendement/risque d’au moins 1,3. Un score technique "
                 "d’au moins 65/100 avec Higher Low/breakout confirmé, ou 60/100 "
                 "après un retournement ou pullback confirmé, une valorisation disponible et non "
                 "PRIME ÉLEVÉE, et aucun résultat dans les 7 jours. "
@@ -1919,7 +2208,7 @@ if technical_items or fundamental_items:
             "<tr>" + "".join(cells) + "</tr>"
         )
     comparison_headers = (
-        "Action", "Technique", "Évolution technique depuis 3 séances", "Valorisation",
+        "Action", "Technique", "Évolution 3 séances", "Valorisation",
         "Fondamental / Max", "Résultats", "À faire",
     )
     for section_name in (selected_universe,):
@@ -2000,7 +2289,7 @@ if st.session_state.report:
         ticker = header.split("—", 1)[0].split()[-1]
         section_name = stock_section(ticker)
         if section_name != current_stock_section:
-            section_heading(section_name, level=2)
+            section_heading(f"Fiches détaillées — {section_name}", level=2)
             current_stock_section = section_name
         fields = {}
 

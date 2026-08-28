@@ -2,6 +2,7 @@ import yfinance as yf
 import pandas as pd
 
 from config import WATCHLIST
+from market_sessions import filter_closed_daily_bars
 
 
 def rsi(series, period=14):
@@ -27,6 +28,7 @@ print("\nSIMON AI STOCK WATCHLIST - TECHNICAL LEVELS\n")
 
 for ticker in WATCHLIST:
     df = yf.Ticker(ticker).history(period="1y", auto_adjust=True)
+    df = filter_closed_daily_bars(df)
     if df.empty or len(df) < 200:
         print(f"{ticker}: insufficient data\n")
         continue
